@@ -47,7 +47,7 @@ window.GameApp = window.GameApp || {};
     const camera = app.world && app.world.camera;
     const crewMembers = app.ship && app.ship.crewMembers;
 
-    if (state && state.crewEnabled && camera && Array.isArray(crewMembers)) {
+    if (state && state.crewEnabled && !state.crewFalling && camera && Array.isArray(crewMembers)) {
       updatePointerNdc(clientX, clientY);
       raycaster.setFromCamera(pointerNdc, camera);
 
@@ -72,7 +72,7 @@ window.GameApp = window.GameApp || {};
 
     canvas.addEventListener('pointerdown', (e) => {
       const state = app.state;
-      if (!state || !state.isPlaying || state.isGameOver || state.shipCapsizing) return;
+      if (!state || !state.isPlaying || state.isGameOver || state.shipCapsizing || state.crewFalling) return;
       e.preventDefault();
       canvas.setPointerCapture(e.pointerId);
 
@@ -98,7 +98,7 @@ window.GameApp = window.GameApp || {};
     canvas.addEventListener('pointermove', (e) => {
       if (!pointerState.active || e.pointerId !== pointerState.id) return;
       const state = app.state;
-      if (!state || !state.isPlaying || state.isGameOver || state.shipCapsizing) return;
+      if (!state || !state.isPlaying || state.isGameOver || state.shipCapsizing || state.crewFalling) return;
       e.preventDefault();
 
       const now = performance.now();
@@ -107,14 +107,12 @@ window.GameApp = window.GameApp || {};
       const baseWidth = Math.max(320, canvas.clientWidth || window.innerWidth);
 
       if (pointerState.mode === 'ship') {
-        // 順方向スワイプ操船
         const normDx = (-dx / baseWidth) * 16.5;
         const swipeSpeed = normDx / (dtMs / 1000);
 
         shipPhysics.targetVx += normDx * 2.25;
         shipPhysics.targetVx = THREE.MathUtils.clamp(shipPhysics.targetVx, -13.5, 13.5);
 
-        // 高速スワイプ時の傾きブースト入力
         shipPhysics.tiltBoostInput += swipeSpeed * 0.015;
         shipPhysics.tiltBoostInput = THREE.MathUtils.clamp(shipPhysics.tiltBoostInput, -0.95, 0.95);
       } else if (pointerState.mode === 'net' && pointerState.activeCrew) {
@@ -200,6 +198,41 @@ window.GameApp = window.GameApp || {};
     }
   }
 
+  // 40度到達時の船員落水＆船の一時停止開始（タイマーは継続）
+  function triggerCrewFall(rollZ) {
+    const state = app.state;
+    const ship = app.ship;
+    if (!state || !ship || state.crewFalling || state.shipCapsizing || state.isGameOver) return;
+    if (!state.crewEnabled) return;
+
+    const triggered = typeof ship.triggerCrewFallOut === 'function' && ship.triggerCrewFallOut(rollZ);
+    if (!triggered) return;
+
+    state.crewFalling = true;
+    state.crewFallTimer = 0;
+    state.savedRiverSpeed = state.riverSpeed > 0 ? state.riverSpeed : (app.CONSTANTS.DEFAULT_RIVER_SPEED || 4.5);
+    state.riverSpeed = 0;
+
+    // 操船入力・速度を即時停止
+    shipPhysics.vx = 0;
+    shipPhysics.targetVx = 0;
+    shipPhysics.delayedVelInput = 0;
+    shipPhysics.tiltBoostInput = 0;
+    shipPhysics.delayedTiltBoost = 0;
+
+    if (ship.netAimLine) ship.netAimLine.visible = false;
+    if (ship.netTargetMarker) ship.netTargetMarker.visible = false;
+    pointerState.active = false;
+    pointerState.id = null;
+    pointerState.mode = null;
+    pointerState.activeCrew = null;
+
+    const guide = document.getElementById('guide-pill');
+    if (guide) {
+      guide.textContent = '⚠️ 船員が落水！救助のため一時停止中…（タイマー進行中）';
+    }
+  }
+
   // 転覆シーケンス開始（50度超の傾きで発生）
   function triggerCapsize(rollDir) {
     const state = app.state;
@@ -222,6 +255,15 @@ window.GameApp = window.GameApp || {};
     const CONSTANTS = app.CONSTANTS || {};
     if (!state) return;
 
+    // 落水停止中にリセットされた場合も元の航行速度を復元
+    if (state.crewFalling && state.savedRiverSpeed > 0) {
+      state.riverSpeed = state.savedRiverSpeed;
+    }
+    if (state.riverSpeed <= 0) {
+      state.riverSpeed = CONSTANTS.DEFAULT_RIVER_SPEED || 4.5;
+    }
+    state.savedRiverSpeed = state.riverSpeed;
+
     state.isPlaying = true;
     state.isGameOver = false;
     state.score = 0;
@@ -233,6 +275,7 @@ window.GameApp = window.GameApp || {};
     state.shipCapsizing = false;
     state.capsizeProgress = 0;
     state.crewFalling = false;
+    state.crewFallTimer = 0;
     state.fallingCrew = null;
 
     if (Array.isArray(app.TRASH_VARIANTS)) {
@@ -267,9 +310,16 @@ window.GameApp = window.GameApp || {};
       if (typeof app.ui.updateTimerUI === 'function') app.ui.updateTimerUI();
       if (typeof app.ui.hideModals === 'function') app.ui.hideModals();
     }
+
+    const guide = document.getElementById('guide-pill');
+    if (guide) {
+      guide.textContent = state.crewEnabled
+        ? '船を左右スワイプで操船 ・ 網を外側スワイプでゴミ回収！'
+        : '船を左右スワイプで操船して船首コンベアでゴミを回収しよう！';
+    }
   }
 
-  // 船体移動・ワンテンポ遅れる傾き・衝突・水しぶき更新
+  // 船体移動・ワンテンポ遅れる傾き・衝突・落水・転覆更新
   function updateShipPhysics(dt, elapsed) {
     const state = app.state;
     const CONSTANTS = app.CONSTANTS || {};
@@ -277,6 +327,7 @@ window.GameApp = window.GameApp || {};
     const ship = app.ship;
     if (!state || !world || !ship) return;
 
+    // 50度超の転覆中
     if (state.shipCapsizing) {
       if (typeof ship.updateCapsizeAnimation === 'function') {
         ship.updateCapsizeAnimation(dt);
@@ -286,6 +337,39 @@ window.GameApp = window.GameApp || {};
         state.isPlaying = false;
         if (app.ui && typeof app.ui.endGame === 'function') {
           app.ui.endGame('capsize');
+        }
+      }
+      return;
+    }
+
+    // 40度到達による船員落水＆船の一時停止中（タイマーはanimate側で継続進行）
+    if (state.crewFalling) {
+      state.crewFallTimer += dt;
+
+      // 船体は水平へゆっくり戻しつつその場で停止
+      shipPhysics.currentRollZ += (0 - shipPhysics.currentRollZ) * (1 - Math.exp(-5.0 * dt));
+      const baseWaveY = typeof world.getCurvedY === 'function' ? world.getCurvedY(0) : 0;
+      const bobY = Math.sin(elapsed * 3.0) * 0.04;
+      ship.shipParent.position.set(shipPhysics.x, baseWaveY + bobY, 0);
+      ship.shipVisual.rotation.z = shipPhysics.currentRollZ;
+      ship.shipVisual.rotation.y = THREE.MathUtils.lerp(ship.shipVisual.rotation.y, 0, dt * 6);
+
+      if (typeof ship.updateCrewFallOut === 'function') {
+        ship.updateCrewFallOut(dt, elapsed);
+      }
+
+      // 2.2秒経過で救助完了・航行再開
+      if (state.crewFallTimer >= 2.2) {
+        if (typeof ship.restoreFallenCrew === 'function') {
+          ship.restoreFallenCrew();
+        }
+        state.crewFalling = false;
+        state.crewFallTimer = 0;
+        state.riverSpeed = state.savedRiverSpeed || CONSTANTS.DEFAULT_RIVER_SPEED || 4.5;
+
+        const guide = document.getElementById('guide-pill');
+        if (guide) {
+          guide.textContent = '船員を救助しました！操船再開！';
         }
       }
       return;
@@ -382,7 +466,7 @@ window.GameApp = window.GameApp || {};
     }
 
     // 船員バランス・警告アイコン更新
-    const warnDeg = CONSTANTS.WARN_THRESHOLD_DEG || 38.0;
+    const warnDeg = CONSTANTS.WARN_THRESHOLD_DEG || 30.0;
     const isDangerTilt = rollDeg >= warnDeg;
     if (typeof ship.updateCrewStability === 'function') {
       ship.updateCrewStability(dt, elapsed, shipPhysics.currentRollZ, tiltDelta, pointerState.activeCrew, isDangerTilt);
@@ -392,6 +476,13 @@ window.GameApp = window.GameApp || {};
     const fallDeg = CONSTANTS.FALL_THRESHOLD_DEG || 50.0;
     if (rollDeg > fallDeg) {
       triggerCapsize(shipPhysics.currentRollZ >= 0 ? 1 : -1);
+      return;
+    }
+
+    // 40度到達で船員落水＆船の一時停止判定（タイマーは進行）
+    const crewFallDeg = CONSTANTS.CREW_FALL_THRESHOLD_DEG || 40.0;
+    if (rollDeg >= crewFallDeg && state.crewEnabled) {
+      triggerCrewFall(shipPhysics.currentRollZ);
     }
   }
 
@@ -432,6 +523,7 @@ window.GameApp = window.GameApp || {};
       }
     }
 
+    // state.crewFalling 中は state.riverSpeed が 0 のため背景・川も一時停止する
     if (typeof world.updateWorld === 'function') {
       world.updateWorld(dt, elapsed);
     }
@@ -441,6 +533,7 @@ window.GameApp = window.GameApp || {};
     }
 
     if (state.isPlaying && !state.isGameOver) {
+      // タイマーは船員落水による一時停止中でもそのまま進行する
       if (!state.shipCapsizing) {
         state.timeLeft = Math.max(0, state.timeLeft - dt);
         if (app.ui && typeof app.ui.updateTimerUI === 'function') {
@@ -457,11 +550,11 @@ window.GameApp = window.GameApp || {};
 
       updateShipPhysics(dt, elapsed);
 
-      if (!state.shipCapsizing && trash && typeof trash.updateTrash === 'function') {
+      // 船員落水停止中はゴミの流れ・回収も停止
+      if (!state.shipCapsizing && !state.crewFalling && trash && typeof trash.updateTrash === 'function') {
         trash.updateTrash(dt, elapsed, handleTrashCollected);
       }
     } else if (ship && ship.shipParent && ship.shipVisual) {
-      // タイトル・リザルト画面でのアイドル揺れ
       shipPhysics.x = 0;
       const baseWaveY = typeof world.getCurvedY === 'function' ? world.getCurvedY(0) : 0;
       ship.shipParent.position.set(0, baseWaveY + Math.sin(elapsed * 2.4) * 0.06, 0);
