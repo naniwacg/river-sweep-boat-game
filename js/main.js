@@ -129,14 +129,14 @@ window.GameApp = window.GameApp || {};
       const baseWidth = Math.max(320, canvas.clientWidth || window.innerWidth);
 
       if (pointerState.mode === 'ship') {
-        // 逆方向スワイプ操船
+        // 順方向スワイプ操船（右スワイプ dx > 0 → 画面右側 -X へ移動）
         const normDx = (-dx / baseWidth) * 16.5;
         const swipeSpeed = normDx / (dtMs / 1000);
 
         shipPhysics.targetVx += normDx * 2.25;
         shipPhysics.targetVx = THREE.MathUtils.clamp(shipPhysics.targetVx, -13.5, 13.5);
 
-        // 高速スワイプ時に船体を大きく傾かせるブースト入力
+        // 高速スワイプ時に進行方向が浮き上がる傾きブースト入力
         shipPhysics.tiltBoostInput += swipeSpeed * 0.015;
         shipPhysics.tiltBoostInput = THREE.MathUtils.clamp(shipPhysics.tiltBoostInput, -0.95, 0.95);
       } else if (pointerState.mode === 'net' && pointerState.activeCrew) {
@@ -345,9 +345,11 @@ window.GameApp = window.GameApp || {};
       }
     }
 
-    // 目標ロール角（最大約60度近くまで傾ける設定にし、50度超で転覆）
+    // 目標ロール角（進行方向側が水の抵抗で浮き上がるように傾く）
+    // 右移動(vx < 0)で右側(-X)が浮き上がる = rotation.z < 0
+    // 左移動(vx > 0)で左側(+X)が浮き上がる = rotation.z > 0
     const targetRollZ = THREE.MathUtils.clamp(
-      -shipPhysics.vx * 0.075 - shipPhysics.delayedTiltBoost * 0.66,
+      shipPhysics.vx * 0.075 + shipPhysics.delayedTiltBoost * 0.66,
       -1.08,
       1.08
     );
@@ -365,10 +367,10 @@ window.GameApp = window.GameApp || {};
     shipVisual.rotation.y = -shipPhysics.vx * 0.03;
     shipVisual.rotation.x = Math.cos(elapsed * 2.8) * 0.025;
 
-    // 水しぶきパーティクル発生（傾きが SPRAY_THRESHOLD_DEG を超えた側）
+    // 水しぶきパーティクル発生（水の抵抗を受ける進行方向側から水しぶきを上げる）
     const sprayDeg = CONSTANTS.SPRAY_THRESHOLD_DEG || 12.0;
     if (rollDeg > sprayDeg) {
-      const splashSide = shipPhysics.currentRollZ > 0 ? -1 : 1;
+      const splashSide = shipPhysics.currentRollZ > 0 ? 1 : -1;
       const intensity = THREE.MathUtils.clamp((rollDeg - sprayDeg) / 30.0, 0.25, 1.0);
       spawnTiltSpray(splashSide, intensity);
     }
@@ -405,7 +407,6 @@ window.GameApp = window.GameApp || {};
       }
     }
 
-    // world.js の updateWorld(dt, elapsed) 仕様に合わせて呼び出し
     if (typeof updateWorld === 'function') {
       updateWorld(dt, elapsed);
     }
