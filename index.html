@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>海洋清掃船 3Dアクション</title>
+  <title>河川清掃船</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
@@ -137,10 +137,10 @@
       <div class="inline-block px-3 py-1 rounded-full bg-sky-500/20 text-sky-400 text-xs font-extrabold tracking-widest uppercase mb-2">
         RIVER CLEANUP CREW
       </div>
-      <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight mb-1">海洋清掃船アクション</h1>
-      <p class="text-xs sm:text-sm text-slate-400 mb-5">〜 川の漂流ゴミを回収せよ 〜</p>
+      <h1 class="text-2xl sm:text-3xl font-extrabold text-white tracking-tight mb-1">河川清掃船</h1>
+      <p class="text-xs sm:text-sm text-slate-400 mb-5">河川ゴミを回収しよう</p>
 
-      <!-- 当日の仕事（ミッションカード） -->
+      <!-- 当日の仕事 -->
       <div class="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-4 sm:p-5 mb-6 text-left">
         <div class="flex items-center justify-between border-b border-slate-700/80 pb-2.5 mb-3">
           <span class="text-xs font-extrabold tracking-wider text-amber-400 uppercase">TODAY'S MISSION / 当日の仕事</span>
@@ -149,13 +149,13 @@
 
         <div class="flex items-center justify-between bg-slate-900/80 rounded-xl px-4 py-3 mb-3 border border-slate-700/50">
           <div>
-            <div class="text-[13px] font-semibold text-slate-400">目標回収ノルマ（60秒以内）</div>
-            <div id="mission-target-text" class="text-lg sm:text-xl font-extrabold text-white">ゴミ総数 <span class="text-sky-400">15</span> 個以上回収！</div>
+            <div class="text-[13px] font-semibold text-slate-400">目標回収</div>
+            <div id="mission-target-text" class="text-lg sm:text-xl font-extrabold text-white">ゴミ総数 <span class="text-sky-400">15</span> 個以上</div>
           </div>
           <div class="text-2xl">🗑️</div>
         </div>
 
-        <!-- 種別ノルマ一覧 -->
+        <!-- 種別ノルマ -->
         <div class="bg-slate-900/60 rounded-xl p-3 mb-3 border border-slate-700/40">
           <div class="text-[12px] font-bold tracking-wider text-amber-300/90 uppercase mb-2">TYPE QUOTA / 種別回収ノルマ</div>
           <div id="mission-type-quotas" class="grid grid-cols-2 gap-1.5 text-xs"></div>
