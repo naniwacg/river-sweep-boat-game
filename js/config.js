@@ -10,8 +10,9 @@ window.GameApp = window.GameApp || {};
     BANK_LIMIT_X: 6.2,
     INITIAL_NET_YAW_ABS: Math.PI / 4,
     TILT_PARTICLE_COUNT: 240,
-    FALL_THRESHOLD_DEG: 50.0,
-    WARN_THRESHOLD_DEG: 38.0,
+    FALL_THRESHOLD_DEG: 50.0,       // 50度超で船が転覆（ゲームオーバー）
+    CREW_FALL_THRESHOLD_DEG: 40.0,  // 40度到達で船員が落水＆船が一時停止
+    WARN_THRESHOLD_DEG: 30.0,       // 30度以上で危険警告アイコン表示
     SPRAY_THRESHOLD_DEG: 12.0
   };
 
@@ -64,11 +65,13 @@ window.GameApp = window.GameApp || {};
     collectedByType: { bottle: 0, foam: 0, can: 0, plastic: 0 },
     timeLeft: app.CONSTANTS.GAME_DURATION,
     riverSpeed: app.CONSTANTS.DEFAULT_RIVER_SPEED,
+    savedRiverSpeed: app.CONSTANTS.DEFAULT_RIVER_SPEED,
     curvature: 0.0022,
     crewCount: 0,
     crewEnabled: false,
     crewCostPerPerson: 5000,
     crewFalling: false,
+    crewFallTimer: 0,
     fallingCrew: null,
     crewFallVelocity: new THREE.Vector3(),
     shipCapsizing: false,
