@@ -1,423 +1,404 @@
-// ==========================================
-// HUD・耐久ゲージ・ミッション生成・ABC評価リザルト・デバッグUI
-// ==========================================
-window.GameApp = window.GameApp || {};
+// UI表示・ミッション生成・ABC評価ロジック・デバッグ制御
 
-(function (app) {
-  const { state, TRASH_VARIANTS, CONSTANTS, ship } = app;
+const dom = {
+  score: document.getElementById('score-display'),
+  hudTotalTarget: document.getElementById('hud-total-target'),
+  hudTypeCounts: document.getElementById('hud-type-counts'),
+  hullHpPanel: document.getElementById('hull-hp-panel'),
+  hullHpText: document.getElementById('hull-hp-text'),
+  hullHpBar: document.getElementById('hull-hp-bar'),
+  hullDamageAlert: document.getElementById('hull-damage-alert'),
+  timer: document.getElementById('timer-display'),
+  guide: document.getElementById('guide-pill'),
+  titleModal: document.getElementById('title-modal'),
+  resultModal: document.getElementById('result-modal'),
+  resultBadge: document.getElementById('result-badge'),
+  resultTitle: document.getElementById('result-title'),
+  resultComment: document.getElementById('result-comment'),
+  resultBreakdown: document.getElementById('result-breakdown'),
+  resultMissionTarget: document.getElementById('result-mission-target'),
+  resultProgressDetail: document.getElementById('result-progress-detail'),
+  resultCostDetail: document.getElementById('result-cost-detail'),
+  resultQuotaSummary: document.getElementById('result-quota-summary'),
+  resultRank: document.getElementById('result-rank'),
+  resultRankLabel: document.getElementById('result-rank-label'),
+  missionDayBadge: document.getElementById('mission-day-badge'),
+  missionTargetText: document.getElementById('mission-target-text'),
+  missionTypeQuotas: document.getElementById('mission-type-quotas'),
+  missionCrewCostBadge: document.getElementById('mission-crew-cost-badge'),
+  missionCrewNote: document.getElementById('mission-crew-note'),
+  crewSelectButtons: document.querySelectorAll('.crew-select-btn'),
+  startBtn: document.getElementById('start-btn'),
+  retryBtn: document.getElementById('retry-btn'),
+  debugToggleBtn: document.getElementById('debug-toggle-btn'),
+  debugPanel: document.getElementById('debug-panel'),
+  debugSpeedSlider: document.getElementById('debug-speed-slider'),
+  debugSpeedVal: document.getElementById('debug-speed-val'),
+  debugSpeedReset: document.getElementById('debug-speed-reset'),
+  debugTimeSlider: document.getElementById('debug-time-slider'),
+  debugTimeVal: document.getElementById('debug-time-val'),
+  debugTimePresets: document.querySelectorAll('.debug-time-preset'),
+  debugCrewToggle: document.getElementById('debug-crew-toggle')
+};
 
-  const dom = {
-    scoreEl: document.getElementById('score-display'),
-    hudTotalTargetEl: document.getElementById('hud-total-target'),
-    hudTypeCountsEl: document.getElementById('hud-type-counts'),
-    hullHpPanelEl: document.getElementById('hull-hp-panel'),
-    hullHpTextEl: document.getElementById('hull-hp-text'),
-    hullHpBarEl: document.getElementById('hull-hp-bar'),
-    hullDamageAlertEl: document.getElementById('hull-damage-alert'),
-    timerEl: document.getElementById('timer-display'),
-    crewStatusEl: document.getElementById('crew-status'),
+// 船体耐久ゲージ更新
+function updateHullHpUI() {
+  const ratio = Math.max(0, Math.min(100, (state.hullHp / state.maxHullHp) * 100));
+  if (dom.hullHpText) dom.hullHpText.textContent = `${Math.ceil(ratio)}%`;
+  if (dom.hullHpBar) {
+    dom.hullHpBar.style.width = `${ratio}%`;
+    dom.hullHpBar.classList.remove('bg-emerald-400', 'bg-amber-400', 'bg-rose-500');
+    if (ratio > 55) {
+      dom.hullHpBar.classList.add('bg-emerald-400');
+    } else if (ratio > 25) {
+      dom.hullHpBar.classList.add('bg-amber-400');
+    } else {
+      dom.hullHpBar.classList.add('bg-rose-500');
+    }
+  }
+}
 
-    debugToggleBtn: document.getElementById('debug-toggle-btn'),
-    debugPanel: document.getElementById('debug-panel'),
-    debugSpeedSlider: document.getElementById('debug-speed-slider'),
-    debugSpeedVal: document.getElementById('debug-speed-val'),
-    debugSpeedReset: document.getElementById('debug-speed-reset'),
-    debugTimeSlider: document.getElementById('debug-time-slider'),
-    debugTimeVal: document.getElementById('debug-time-val'),
-    debugTimePresetBtns: document.querySelectorAll('.debug-time-preset'),
-    debugCrewToggleBtn: document.getElementById('debug-crew-toggle'),
+// 船員数選択UIの更新
+function setSelectedCrewCount(count) {
+  const normalized = Math.max(0, Math.min(2, Math.round(count)));
+  state.selectedCrewCount = normalized;
+  state.crewEnabled = normalized > 0;
 
-    titleModal: document.getElementById('title-modal'),
-    missionDayBadgeEl: document.getElementById('mission-day-badge'),
-    missionTargetTextEl: document.getElementById('mission-target-text'),
-    missionTypeQuotasEl: document.getElementById('mission-type-quotas'),
-    missionCrewCostBadgeEl: document.getElementById('mission-crew-cost-badge'),
-    missionCrewNoteEl: document.getElementById('mission-crew-note'),
-    crewSelectBtns: document.querySelectorAll('.crew-select-btn'),
-    startBtn: document.getElementById('start-btn'),
+  dom.crewSelectButtons.forEach((btn) => {
+    const btnCount = parseInt(btn.getAttribute('data-crew-count'), 10);
+    if (btnCount === normalized) {
+      btn.className = 'crew-select-btn bg-sky-500/20 text-sky-300 border border-sky-400 rounded-lg py-1 px-1.5 text-center transition-all cursor-pointer shadow-sm';
+    } else {
+      btn.className = 'crew-select-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg py-1 px-1.5 text-center transition-all cursor-pointer';
+    }
+  });
 
-    resultModal: document.getElementById('result-modal'),
-    resultBadgeEl: document.getElementById('result-badge'),
-    resultTitleEl: document.getElementById('result-title'),
-    resultCommentEl: document.getElementById('result-comment'),
-    resultMissionTargetEl: document.getElementById('result-mission-target'),
-    resultProgressDetailEl: document.getElementById('result-progress-detail'),
-    resultCostDetailEl: document.getElementById('result-cost-detail'),
-    resultRankEl: document.getElementById('result-rank'),
-    resultRankLabelEl: document.getElementById('result-rank-label'),
-    resultQuotaSummaryEl: document.getElementById('result-quota-summary'),
-    resultBreakdownEl: document.getElementById('result-breakdown'),
-    retryBtn: document.getElementById('retry-btn')
+  const totalCost = normalized * CREW_UNIT_COST;
+  if (dom.missionCrewCostBadge && dom.missionCrewNote) {
+    if (normalized === 0) {
+      dom.missionCrewCostBadge.textContent = '費用 ¥0（高評価狙い）';
+      dom.missionCrewCostBadge.className = 'text-[11px] font-bold text-emerald-400';
+      dom.missionCrewNote.textContent = 'コンベアのみで清掃（低コストでA評価狙い）';
+    } else if (normalized === 1) {
+      dom.missionCrewCostBadge.textContent = `費用 ¥${totalCost.toLocaleString()}（中コスト）`;
+      dom.missionCrewCostBadge.className = 'text-[11px] font-bold text-amber-300';
+      dom.missionCrewNote.textContent = '左舷の網で回収可（A評価には+25%回収が必要）';
+    } else {
+      dom.missionCrewCostBadge.textContent = `費用 ¥${totalCost.toLocaleString()}（高コスト）`;
+      dom.missionCrewCostBadge.className = 'text-[11px] font-bold text-rose-400';
+      dom.missionCrewNote.textContent = '両舷の網で強力回収（費用増により最高B評価）';
+    }
+  }
+
+  syncCrewEnabledUI();
+}
+
+// 船員有効/無効の表示同期
+function syncCrewEnabledUI() {
+  if (dom.debugCrewToggle) {
+    if (state.crewEnabled) {
+      dom.debugCrewToggle.textContent = `有効 (${state.selectedCrewCount}名)`;
+      dom.debugCrewToggle.className = 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 text-xs font-extrabold px-2.5 py-1 rounded-xl transition-all cursor-pointer';
+    } else {
+      dom.debugCrewToggle.textContent = '無効';
+      dom.debugCrewToggle.className = 'bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-600 text-xs font-extrabold px-2.5 py-1 rounded-xl transition-all cursor-pointer';
+    }
+  }
+  if (dom.guide) {
+    dom.guide.textContent = state.crewEnabled
+      ? '船を左右スワイプで操船 ・ 網を外側スワイプでゴミ回収！'
+      : '船を左右スワイプで操船して船首コンベアでゴミを回収しよう！';
+  }
+  if (typeof syncCrewVisibility === 'function') {
+    syncCrewVisibility();
+  }
+}
+
+// HUD左上のゴミ種別ごとのリアルタイム回収カウントを更新（アイコンのみ）
+function updateHudTypeCounts() {
+  if (!dom.hudTypeCounts) return;
+  dom.hudTypeCounts.innerHTML = '';
+
+  TRASH_TYPES.forEach((type) => {
+    const current = state.collectedByType[type.id] || 0;
+    const quota = state.mission.quotas[type.id] || 0;
+    const isCleared = quota > 0 && current >= quota;
+
+    const row = document.createElement('div');
+    row.className = 'flex items-center justify-between gap-2';
+    row.title = type.name;
+
+    const countText = quota > 0 ? `${current}/${quota}` : `${current}`;
+    const countClass = quota > 0
+      ? (isCleared ? 'text-emerald-400 font-extrabold' : 'text-amber-300 font-bold')
+      : 'text-slate-300 font-semibold';
+
+    row.innerHTML = `
+      <span class="inline-flex items-center gap-1 text-slate-200">
+        <span class="w-2 h-2 rounded-full inline-block shrink-0" style="background-color: ${type.badgeColor}"></span>
+        <span class="text-sm leading-none" aria-label="${type.name}">${type.icon}</span>
+      </span>
+      <span class="${countClass} tabular-nums">${countText}${isCleared ? ' ✓' : ''}</span>
+    `;
+    dom.hudTypeCounts.appendChild(row);
+  });
+}
+
+// 日替わりミッション生成（総数目標 ＋ 種別回収ノルマ）
+function generateDailyMission() {
+  const totalTarget = Math.min(14, 7 + Math.floor((state.day - 1) * 1.5) + Math.floor(Math.random() * 3));
+  const shuffled = [...TRASH_TYPES].sort(() => Math.random() - 0.5);
+  const pickedTypes = shuffled.slice(0, 2);
+
+  const quotas = {};
+  let quotaSum = 0;
+  pickedTypes.forEach((t, idx) => {
+    const q = idx === 0
+      ? Math.max(2, Math.round(totalTarget * 0.32))
+      : Math.max(2, Math.round(totalTarget * 0.25));
+    quotas[t.id] = q;
+    quotaSum += q;
+  });
+
+  state.mission = {
+    totalTarget: Math.max(totalTarget, quotaSum + 2),
+    quotas
   };
 
-  function updateHullHpUI(isColliding = false) {
-    const pct = Math.max(0, Math.round((state.shipHp / state.shipMaxHp) * 100));
-    if (dom.hullHpTextEl) dom.hullHpTextEl.textContent = `${pct}%`;
-    if (dom.hullHpBarEl) {
-      dom.hullHpBarEl.style.width = `${pct}%`;
-      dom.hullHpBarEl.className = pct <= 25
-        ? 'h-full bg-rose-500 rounded-full transition-all duration-150'
-        : pct <= 55
-          ? 'h-full bg-amber-400 rounded-full transition-all duration-150'
-          : 'h-full bg-emerald-400 rounded-full transition-all duration-150';
-    }
-    if (dom.hullHpPanelEl) {
-      dom.hullHpPanelEl.className = isColliding
-        ? 'bg-rose-950/85 backdrop-blur-md border border-rose-500 rounded-2xl px-4 py-2.5 shadow-lg shadow-rose-500/20 min-w-[155px] sm:min-w-[210px] transition-colors duration-150'
-        : 'bg-slate-900/75 backdrop-blur-md border border-slate-700/60 rounded-2xl px-4 py-2.5 shadow-lg min-w-[155px] sm:min-w-[210px] transition-colors duration-150';
-    }
-    if (dom.hullDamageAlertEl) {
-      dom.hullDamageAlertEl.classList.toggle('hidden', !isColliding);
-    }
+  if (dom.missionDayBadge) dom.missionDayBadge.textContent = `${state.day}日目`;
+  if (dom.missionTargetText) {
+    dom.missionTargetText.innerHTML = `ゴミ総数 <span class="text-sky-400">${state.mission.totalTarget}</span> 個以上`;
+  }
+  if (dom.hudTotalTarget) {
+    dom.hudTotalTarget.textContent = `/ ${state.mission.totalTarget}`;
   }
 
-  function updateHudRecoveryCounts() {
-    if (dom.scoreEl) dom.scoreEl.textContent = String(state.score);
-    if (dom.hudTotalTargetEl) {
-      dom.hudTotalTargetEl.textContent = `/ ${state.missionTarget}`;
-      dom.hudTotalTargetEl.className = state.score >= state.missionTarget
-        ? 'text-xs font-extrabold text-emerald-400 tabular-nums'
-        : 'text-xs font-bold text-slate-400 tabular-nums';
-    }
-    if (dom.hudTypeCountsEl) {
-      dom.hudTypeCountsEl.innerHTML = TRASH_VARIANTS.map((v) => {
-        const count = state.collectedByType[v.id] || 0;
-        const quota = state.missionTypeTargets[v.id] || 0;
-        const hasQuota = quota > 0;
-        const isMet = hasQuota && count >= quota;
-
-        const countHtml = hasQuota
-          ? `<span class="${isMet ? 'text-emerald-400' : 'text-amber-300'} font-extrabold tabular-nums">${count}/${quota}</span>`
-          : `<span class="text-slate-200 font-bold tabular-nums">${count}</span>`;
-
-        return `
-          <div class="flex items-center justify-between gap-2" title="${v.label}">
-            <div class="flex items-center gap-1">
-              <span class="w-1.5 h-1.5 rounded-full ${v.dotColor} shrink-0"></span>
-              <span class="text-sm leading-none">${v.icon}</span>
-            </div>
-            ${countHtml}
-          </div>
-        `;
-      }).join('');
-    }
-  }
-
-  function renderMissionCard() {
-    if (dom.missionDayBadgeEl) dom.missionDayBadgeEl.textContent = `DAY ${state.dayCount}`;
-    if (dom.missionTargetTextEl) {
-      dom.missionTargetTextEl.innerHTML = `ゴミ総数 <span class="text-sky-400">${state.missionTarget}</span> 個以上回収！`;
-    }
-    if (dom.missionTypeQuotasEl) {
-      const activeQuotas = TRASH_VARIANTS.filter((v) => (state.missionTypeTargets[v.id] || 0) > 0);
-      dom.missionTypeQuotasEl.innerHTML = activeQuotas.map((v) => `
-        <div class="flex items-center justify-between bg-slate-800/90 border border-slate-700/60 rounded-lg px-2.5 py-1.5" title="${v.label}">
-          <div class="flex items-center gap-1.5">
-            <span class="w-2 h-2 rounded-full ${v.dotColor} shrink-0"></span>
-            <span class="text-base leading-none">${v.icon}</span>
-          </div>
-          <span class="text-amber-300 font-extrabold tabular-nums">${state.missionTypeTargets[v.id]}</span>
-        </div>
-      `).join('');
-    }
-  }
-
-  function generateDailyMission() {
-    state.missionTarget = 14 + Math.floor(Math.random() * 5);
-    const shuffled = [...TRASH_VARIANTS].sort(() => Math.random() - 0.5);
-    const typeTargets = { bottle: 0, foam: 0, can: 0, plastic: 0 };
-    typeTargets[shuffled[0].id] = 3 + Math.floor(Math.random() * 2);
-    typeTargets[shuffled[1].id] = 2 + Math.floor(Math.random() * 2);
-    state.missionTypeTargets = typeTargets;
-
-    renderMissionCard();
-    updateHudRecoveryCounts();
-  }
-
-  function applyCrewDeployment(count) {
-    const normalized = THREE.MathUtils.clamp(Number(count) || 0, 0, 2);
-    state.crewCount = normalized;
-    state.crewEnabled = normalized > 0;
-
-    dom.crewSelectBtns.forEach((btn) => {
-      const btnCount = Number(btn.dataset.crewCount);
-      btn.className = btnCount === normalized
-        ? 'crew-select-btn bg-sky-500/20 text-sky-300 border border-sky-400 rounded-lg py-1.5 px-1.5 text-center transition-all cursor-pointer shadow-sm'
-        : 'crew-select-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg py-1.5 px-1.5 text-center transition-all cursor-pointer';
-    });
-
-    const totalCost = normalized * state.crewCostPerPerson;
-    if (dom.missionCrewCostBadgeEl) {
-      if (normalized === 0) {
-        dom.missionCrewCostBadgeEl.textContent = '費用 ¥0（高評価狙い）';
-        dom.missionCrewCostBadgeEl.className = 'text-xs font-bold text-emerald-400';
-      } else if (normalized === 1) {
-        dom.missionCrewCostBadgeEl.textContent = `費用 ¥${totalCost.toLocaleString()}（中コスト）`;
-        dom.missionCrewCostBadgeEl.className = 'text-xs font-bold text-amber-300';
-      } else {
-        dom.missionCrewCostBadgeEl.textContent = `費用 ¥${totalCost.toLocaleString()}（高コスト）`;
-        dom.missionCrewCostBadgeEl.className = 'text-xs font-bold text-rose-400';
-      }
-    }
-
-    if (dom.missionCrewNoteEl) {
-      if (normalized === 0) {
-        dom.missionCrewNoteEl.textContent = 'コンベアのみで清掃（低コストでA評価狙い）';
-      } else if (normalized === 1) {
-        dom.missionCrewNoteEl.textContent = '左舷の網で回収可（A評価には+25%回収が必要）';
-      } else {
-        dom.missionCrewNoteEl.textContent = '両舷の網で強力回収（費用増により最高B評価）';
-      }
-    }
-
-    if (dom.debugCrewToggleBtn) {
-      dom.debugCrewToggleBtn.textContent = state.crewEnabled ? `ON (${normalized}名)` : 'OFF';
-      dom.debugCrewToggleBtn.className = state.crewEnabled
-        ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 text-[11px] font-extrabold px-2.5 py-1 rounded-xl transition-all cursor-pointer'
-        : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-600 text-[11px] font-extrabold px-2.5 py-1 rounded-xl transition-all cursor-pointer';
-    }
-
-    ship.crewMembers.forEach((crew, idx) => {
-      const isActiveCrew = state.crewEnabled && idx < normalized;
-      crew.isDeployed = isActiveCrew;
-      crew.group.visible = isActiveCrew;
-      if (!isActiveCrew) crew.alertIcon.visible = false;
-    });
-
-    if (!state.crewEnabled) {
-      ship.netAimLine.visible = false;
-      ship.netTargetMarker.visible = false;
-    }
-  }
-
-  function renderResultBreakdown() {
-    if (!dom.resultBreakdownEl) return;
-    dom.resultBreakdownEl.innerHTML = TRASH_VARIANTS.map((v) => {
-      const count = state.collectedByType[v.id] || 0;
-      const quota = state.missionTypeTargets[v.id] || 0;
-      const hasQuota = quota > 0;
-      const isMet = hasQuota && count >= quota;
-
-      const borderClass = hasQuota
-        ? (isMet ? 'border-emerald-500/60 bg-emerald-950/25' : 'border-amber-500/50 bg-slate-900/90')
-        : 'border-slate-700/50 bg-slate-900/70';
-
-      const countDisplay = hasQuota
-        ? `<span class="${isMet ? 'text-emerald-400' : 'text-amber-300'} font-extrabold tabular-nums">${count}/${quota}</span>`
-        : `<span class="text-white font-extrabold tabular-nums">${count}</span>`;
-
-      return `
-        <div class="flex items-center justify-between border ${borderClass} rounded-xl px-3 py-2" title="${v.label}">
-          <div class="flex items-center gap-1.5">
-            <span class="w-2 h-2 rounded-full ${v.dotColor} shrink-0"></span>
-            <span class="text-base leading-none">${v.icon}</span>
-          </div>
-          <div class="shrink-0">${countDisplay}</div>
-        </div>
+  if (dom.missionTypeQuotas) {
+    dom.missionTypeQuotas.innerHTML = '';
+    pickedTypes.forEach((t) => {
+      const item = document.createElement('div');
+      item.className = 'flex items-center justify-between bg-slate-800/90 border border-slate-700/70 rounded-lg px-2.5 py-1.5';
+      item.title = t.name;
+      item.innerHTML = `
+        <span class="inline-flex items-center gap-1.5 text-slate-200 font-semibold">
+          <span class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background-color: ${t.badgeColor}"></span>
+          <span class="text-base leading-none" aria-label="${t.name}">${t.icon}</span>
+        </span>
+        <span class="font-extrabold text-amber-300 tabular-nums">${quotas[t.id]}個</span>
       `;
-    }).join('');
-  }
-
-  function showResultModal(reason) {
-    const target = state.missionTarget;
-    const ratio = target > 0 ? state.score / target : 0;
-    const pct = Math.round(ratio * 100);
-
-    const quotaVariants = TRASH_VARIANTS.filter((v) => (state.missionTypeTargets[v.id] || 0) > 0);
-    const metQuotaCount = quotaVariants.filter((v) => (state.collectedByType[v.id] || 0) >= state.missionTypeTargets[v.id]).length;
-    const allTypeQuotasMet = metQuotaCount === quotaVariants.length;
-    const validMission = reason !== 'OVERBOARD' && reason !== 'CAPSIZE' && reason !== 'HULL_BROKEN';
-    const isTotalMet = state.score >= target;
-    const isMissionCleared = validMission && isTotalMet && allTypeQuotasMet;
-    const crewCost = state.crewCount * state.crewCostPerPerson;
-
-    dom.resultMissionTargetEl.textContent = `${state.score} / ${target}`;
-    dom.resultProgressDetailEl.textContent = `総数達成率 ${pct}% ・ 種別 ${metQuotaCount}/${quotaVariants.length}`;
-    if (dom.resultCostDetailEl) {
-      dom.resultCostDetailEl.textContent = `船員費用: ¥${crewCost.toLocaleString()} (${state.crewCount}名配置)`;
-      dom.resultCostDetailEl.className = state.crewCount === 0
-        ? 'text-[13px] font-bold text-emerald-400 mt-1'
-        : state.crewCount === 1
-          ? 'text-[13px] font-bold text-amber-300 mt-1'
-          : 'text-[13px] font-bold text-rose-400 mt-1';
-    }
-    if (dom.resultQuotaSummaryEl) {
-      dom.resultQuotaSummaryEl.textContent = `種別ノルマ ${metQuotaCount} / ${quotaVariants.length} 達成`;
-      dom.resultQuotaSummaryEl.className = allTypeQuotasMet
-        ? 'text-[13px] font-bold text-emerald-400'
-        : 'text-[13px] font-bold text-amber-400';
-    }
-    renderResultBreakdown();
-
-    let rank = 'C';
-    let rankLabel = 'TRY AGAIN';
-    let rankColorClass = 'text-rose-400';
-    let rankSubColorClass = 'text-rose-300';
-
-    if (validMission) {
-      if (state.crewCount === 0) {
-        if (isMissionCleared && ratio >= 1.1) {
-          rank = 'A';
-          rankLabel = 'LOW COST & PERFECT!';
-          rankColorClass = 'text-emerald-400';
-          rankSubColorClass = 'text-emerald-300';
-        } else if (isMissionCleared) {
-          rank = 'B';
-          rankLabel = 'MISSION CLEAR';
-          rankColorClass = 'text-sky-400';
-          rankSubColorClass = 'text-sky-300';
-        } else {
-          rank = 'C';
-          rankLabel = 'SHORTFALL';
-          rankColorClass = 'text-amber-400';
-          rankSubColorClass = 'text-amber-300';
-        }
-      } else if (state.crewCount === 1) {
-        if (isMissionCleared && ratio >= 1.35) {
-          rank = 'A';
-          rankLabel = 'HIGH EFFICIENCY!';
-          rankColorClass = 'text-emerald-400';
-          rankSubColorClass = 'text-emerald-300';
-        } else if (isMissionCleared) {
-          rank = 'B';
-          rankLabel = 'COST OFFSET (-1 RANK)';
-          rankColorClass = 'text-sky-400';
-          rankSubColorClass = 'text-sky-300';
-        } else {
-          rank = 'C';
-          rankLabel = 'COST OVERRUN';
-          rankColorClass = 'text-amber-400';
-          rankSubColorClass = 'text-amber-300';
-        }
-      } else {
-        if (isMissionCleared && ratio >= 1.25) {
-          rank = 'B';
-          rankLabel = 'HIGH CREW COST (-1 RANK)';
-          rankColorClass = 'text-sky-400';
-          rankSubColorClass = 'text-sky-300';
-        } else if (isMissionCleared) {
-          rank = 'C';
-          rankLabel = 'HIGH COST PENALTY';
-          rankColorClass = 'text-amber-400';
-          rankSubColorClass = 'text-amber-300';
-        } else {
-          rank = 'C';
-          rankLabel = 'BUDGET DEFICIT';
-          rankColorClass = 'text-rose-400';
-          rankSubColorClass = 'text-rose-300';
-        }
-      }
-    }
-
-    dom.resultRankEl.textContent = rank;
-    dom.resultRankEl.className = `text-5xl sm:text-6xl font-black ${rankColorClass} leading-none tracking-tight`;
-    dom.resultRankLabelEl.textContent = rankLabel;
-    dom.resultRankLabelEl.className = `text-[13px] font-bold ${rankSubColorClass} mt-1`;
-
-    if (reason === 'HULL_BROKEN') {
-      dom.resultBadgeEl.textContent = 'HULL DESTROYED!';
-      dom.resultBadgeEl.className = 'inline-block px-3 py-1 rounded-full bg-rose-500/20 text-rose-400 text-xs font-bold tracking-widest uppercase mb-2';
-      dom.resultTitleEl.textContent = '船体が大破しました！';
-      dom.resultCommentEl.textContent = '川岸や橋脚への接触ダメージで耐久が0になった！（評価: C）';
-      dom.resultCommentEl.className = 'text-sm font-semibold text-rose-400 mb-5';
-    } else if (reason === 'CAPSIZE') {
-      dom.resultBadgeEl.textContent = 'CAPSIZED!';
-      dom.resultBadgeEl.className = 'inline-block px-3 py-1 rounded-full bg-rose-500/20 text-rose-400 text-xs font-bold tracking-widest uppercase mb-2';
-      dom.resultTitleEl.textContent = '船が転覆しました！';
-      dom.resultCommentEl.textContent = '急な左右移動で傾きすぎた！（評価: C）';
-      dom.resultCommentEl.className = 'text-sm font-semibold text-rose-400 mb-5';
-    } else if (reason === 'OVERBOARD') {
-      dom.resultBadgeEl.textContent = 'GAME OVER';
-      dom.resultBadgeEl.className = 'inline-block px-3 py-1 rounded-full bg-rose-500/20 text-rose-400 text-xs font-bold tracking-widest uppercase mb-2';
-      dom.resultTitleEl.textContent = '船員が転落しました！';
-      dom.resultCommentEl.textContent = '操船の傾きに注意しよう！（評価: C）';
-      dom.resultCommentEl.className = 'text-sm font-semibold text-rose-400 mb-5';
-    } else {
-      dom.resultBadgeEl.textContent = isMissionCleared ? 'MISSION CLEAR!' : 'TIME UP!';
-      dom.resultBadgeEl.className = isMissionCleared
-        ? 'inline-block px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-400 text-xs font-bold tracking-widest uppercase mb-2'
-        : 'inline-block px-3 py-1 rounded-full bg-amber-500/20 text-amber-400 text-xs font-bold tracking-widest uppercase mb-2';
-      dom.resultTitleEl.textContent = isMissionCleared ? '当日の仕事 達成！' : 'ノルマ未達…';
-      dom.resultCommentEl.textContent = rank === 'A'
-        ? `低コスト＆ノルマ完全達成！（船員費用 ¥${crewCost.toLocaleString()}）`
-        : rank === 'B'
-          ? (state.crewCount > 0
-              ? `ノルマ達成！船員${state.crewCount}名の費用（¥${crewCost.toLocaleString()}）により評価が1段階ダウン`
-              : '総数・種別ノルマをすべてクリア！')
-          : isMissionCleared
-            ? `ノルマ達成も船員2名の費用（¥${crewCost.toLocaleString()}）でコスト超過によりC評価…`
-            : !isTotalMet
-              ? `ゴミ総数ノルマまであと ${target - state.score}個`
-              : `種別ノルマが未達成（${metQuotaCount}/${quotaVariants.length}達成）`;
-      dom.resultCommentEl.className = rank === 'A'
-        ? 'text-sm font-semibold text-emerald-400 mb-5'
-        : rank === 'B'
-          ? 'text-sm font-semibold text-sky-400 mb-5'
-          : 'text-sm font-semibold text-amber-400 mb-5';
-    }
-
-    dom.resultModal.classList.remove('hidden');
-  }
-
-  function initUIEvents(onStartGame, onRetryMission) {
-    dom.crewSelectBtns.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        applyCrewDeployment(Number(btn.dataset.crewCount));
-      });
+      dom.missionTypeQuotas.appendChild(item);
     });
+  }
 
-    if (dom.debugCrewToggleBtn) {
-      dom.debugCrewToggleBtn.addEventListener('click', () => {
-        applyCrewDeployment(state.crewEnabled ? 0 : (state.crewCount > 0 ? state.crewCount : 2));
-      });
+  updateHudTypeCounts();
+}
+
+// 総合評価ランク（A / B / C）計算（船員配置コスト加味）
+function evaluateMissionResult() {
+  const target = state.mission.totalTarget;
+  const totalRatio = target > 0 ? state.score / target : 1;
+
+  const quotaEntries = Object.entries(state.mission.quotas);
+  let clearedQuotas = 0;
+  let quotaRatioSum = 0;
+
+  quotaEntries.forEach(([typeId, req]) => {
+    const got = state.collectedByType[typeId] || 0;
+    if (got >= req) clearedQuotas++;
+    quotaRatioSum += req > 0 ? Math.min(1.2, got / req) : 1;
+  });
+
+  const avgQuotaRatio = quotaEntries.length > 0 ? quotaRatioSum / quotaEntries.length : 1;
+  const allQuotasCleared = clearedQuotas === quotaEntries.length;
+
+  const activeCrew = state.crewEnabled ? state.selectedCrewCount : 0;
+  const crewCost = activeCrew * CREW_UNIT_COST;
+
+  if (activeCrew === 0) {
+    if (state.score >= target && allQuotasCleared) {
+      return { rank: 'A', label: '優秀', colorClass: 'text-emerald-400', labelClass: 'text-emerald-300', clearedQuotas, totalQuotas: quotaEntries.length, activeCrew, crewCost };
+    }
+    if (totalRatio >= 0.7 && avgQuotaRatio >= 0.65) {
+      return { rank: 'B', label: '良好', colorClass: 'text-sky-400', labelClass: 'text-sky-300', clearedQuotas, totalQuotas: quotaEntries.length, activeCrew, crewCost };
+    }
+    return { rank: 'C', label: '要努力', colorClass: 'text-amber-400', labelClass: 'text-amber-300', clearedQuotas, totalQuotas: quotaEntries.length, activeCrew, crewCost };
+  }
+
+  if (activeCrew === 1) {
+    const highEfficiencyTarget = Math.ceil(target * 1.25);
+    if (state.score >= highEfficiencyTarget && allQuotasCleared) {
+      return { rank: 'A', label: '優秀', colorClass: 'text-emerald-400', labelClass: 'text-emerald-300', clearedQuotas, totalQuotas: quotaEntries.length, activeCrew, crewCost };
+    }
+    if (state.score >= target && allQuotasCleared) {
+      return { rank: 'B', label: '良好', colorClass: 'text-sky-400', labelClass: 'text-sky-300', clearedQuotas, totalQuotas: quotaEntries.length, activeCrew, crewCost };
+    }
+    if (totalRatio >= 0.8 && avgQuotaRatio >= 0.75) {
+      return { rank: 'B', label: '良好', colorClass: 'text-sky-400', labelClass: 'text-sky-300', clearedQuotas, totalQuotas: quotaEntries.length, activeCrew, crewCost };
+    }
+    return { rank: 'C', label: '要努力', colorClass: 'text-amber-400', labelClass: 'text-amber-300', clearedQuotas, totalQuotas: quotaEntries.length, activeCrew, crewCost };
+  }
+
+  if (state.score >= target && allQuotasCleared) {
+    return { rank: 'B', label: '良好', colorClass: 'text-sky-400', labelClass: 'text-sky-300', clearedQuotas, totalQuotas: quotaEntries.length, activeCrew, crewCost };
+  }
+  if (totalRatio >= 0.85 && avgQuotaRatio >= 0.8) {
+    return { rank: 'B', label: '良好', colorClass: 'text-sky-400', labelClass: 'text-sky-300', clearedQuotas, totalQuotas: quotaEntries.length, activeCrew, crewCost };
+  }
+  return { rank: 'C', label: '要努力', colorClass: 'text-amber-400', labelClass: 'text-amber-300', clearedQuotas, totalQuotas: quotaEntries.length, activeCrew, crewCost };
+}
+
+// ゲーム終了・リザルト画面表示
+function endGame(reason = 'timeup') {
+  state.phase = 'gameover';
+  dom.resultMissionTarget.textContent = state.mission.totalTarget;
+
+  const evalRes = evaluateMissionResult();
+  const pct = Math.round((state.score / Math.max(1, state.mission.totalTarget)) * 100);
+  dom.resultProgressDetail.textContent = `回収 ${state.score}個（達成率 ${pct}%）`;
+
+  if (dom.resultCostDetail) {
+    dom.resultCostDetail.textContent = `船員費用: ¥${evalRes.crewCost.toLocaleString()} (${evalRes.activeCrew}名)`;
+    dom.resultCostDetail.className = evalRes.activeCrew === 0
+      ? 'text-xs font-bold text-emerald-400 mt-0.5'
+      : (evalRes.activeCrew === 1 ? 'text-xs font-bold text-amber-300 mt-0.5' : 'text-xs font-bold text-rose-400 mt-0.5');
+  }
+
+  dom.resultQuotaSummary.textContent = `${evalRes.clearedQuotas} / ${evalRes.totalQuotas} 達成`;
+
+  if (reason === 'capsize' || reason === 'hull_destroyed') {
+    const isHull = reason === 'hull_destroyed';
+    dom.resultBadge.textContent = isHull ? '船体大破' : '転覆事故';
+    dom.resultBadge.className = 'inline-block px-2.5 py-0.5 rounded-full bg-rose-500/20 text-rose-400 text-[11px] font-bold tracking-widest mb-1.5';
+    dom.resultTitle.textContent = isHull ? '船体大破！' : '船が転覆した！';
+    dom.resultComment.textContent = isHull
+      ? '川岸や橋脚との衝突で船体が大破しました…'
+      : '急操作で船が大きく傾き転覆しました…';
+    dom.resultComment.className = 'text-xs font-semibold text-rose-400 mb-3';
+
+    dom.resultRank.textContent = 'C';
+    dom.resultRank.className = 'text-4xl sm:text-5xl font-black text-rose-400 leading-none tracking-tight';
+    dom.resultRankLabel.textContent = '失敗';
+    dom.resultRankLabel.className = 'text-xs font-bold text-rose-300 mt-1';
+  } else {
+    dom.resultBadge.textContent = '業務終了';
+    dom.resultBadge.className = 'inline-block px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[11px] font-bold tracking-widest mb-1.5';
+    dom.resultTitle.textContent = '業務終了！';
+
+    dom.resultRank.textContent = evalRes.rank;
+    dom.resultRank.className = `text-4xl sm:text-5xl font-black ${evalRes.colorClass} leading-none tracking-tight`;
+    dom.resultRankLabel.textContent = evalRes.label;
+    dom.resultRankLabel.className = `text-xs font-bold ${evalRes.labelClass} mt-1`;
+
+    if (evalRes.rank === 'A') {
+      dom.resultComment.textContent = '低コスト・高効率の素晴らしい清掃活動でした！';
+      dom.resultComment.className = 'text-xs font-semibold text-emerald-400 mb-3';
+    } else if (evalRes.rank === 'B') {
+      dom.resultComment.textContent = evalRes.activeCrew > 0
+        ? '業務完了！（船員コストを抑えるとA評価を狙えます）'
+        : 'お疲れさまでした！あと少しでA評価です';
+      dom.resultComment.className = 'text-xs font-semibold text-sky-400 mb-3';
+    } else {
+      dom.resultComment.textContent = '目標未達…次はノルマ達成を目指そう';
+      dom.resultComment.className = 'text-xs font-semibold text-amber-400 mb-3';
     }
 
-    dom.startBtn.addEventListener('click', onStartGame);
-    dom.retryBtn.addEventListener('click', onRetryMission);
+    state.day += 1;
+  }
 
-    dom.debugToggleBtn.addEventListener('click', () => {
+  dom.resultBreakdown.innerHTML = '';
+  TRASH_TYPES.forEach(type => {
+    const count = state.collectedByType[type.id] || 0;
+    const quota = state.mission.quotas[type.id] || 0;
+    const isQuotaTarget = quota > 0;
+    const isCleared = isQuotaTarget && count >= quota;
+
+    const item = document.createElement('div');
+    item.className = isQuotaTarget
+      ? (isCleared
+          ? 'flex items-center justify-between bg-emerald-950/60 border border-emerald-500/50 rounded-xl px-2.5 py-1.5'
+          : 'flex items-center justify-between bg-amber-950/50 border border-amber-500/40 rounded-xl px-2.5 py-1.5')
+      : 'flex items-center justify-between bg-slate-900/80 border border-slate-700/50 rounded-xl px-2.5 py-1.5';
+    item.title = type.name;
+
+    const valueHtml = isQuotaTarget
+      ? `<span class="font-extrabold ${isCleared ? 'text-emerald-400' : 'text-amber-300'} tabular-nums">${count}/${quota}個 ${isCleared ? '✓' : ''}</span>`
+      : `<span class="font-extrabold text-white tabular-nums">${count}個</span>`;
+
+    item.innerHTML = `
+      <span class="flex items-center gap-1.5 text-slate-200 font-medium">
+        <span class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background-color: ${type.badgeColor}"></span>
+        <span class="text-base leading-none" aria-label="${type.name}">${type.icon}</span>
+      </span>
+      ${valueHtml}
+    `;
+    dom.resultBreakdown.appendChild(item);
+  });
+
+  dom.resultModal.classList.remove('hidden');
+}
+
+// デバッグパネルのイベント初期化
+function initDebugUI() {
+  if (dom.debugToggleBtn && dom.debugPanel) {
+    dom.debugToggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
       dom.debugPanel.classList.toggle('hidden');
     });
+  }
 
+  if (dom.debugSpeedSlider && dom.debugSpeedVal) {
     dom.debugSpeedSlider.addEventListener('input', (e) => {
-      state.riverSpeed = parseFloat(e.target.value);
-      dom.debugSpeedVal.textContent = state.riverSpeed.toFixed(1);
-    });
-
-    dom.debugSpeedReset.addEventListener('click', () => {
-      state.riverSpeed = CONSTANTS.DEFAULT_RIVER_SPEED;
-      dom.debugSpeedSlider.value = String(CONSTANTS.DEFAULT_RIVER_SPEED);
-      dom.debugSpeedVal.textContent = CONSTANTS.DEFAULT_RIVER_SPEED.toFixed(1);
-    });
-
-    dom.debugTimeSlider.addEventListener('input', (e) => {
-      const sec = parseInt(e.target.value, 10);
-      state.timeLeft = sec;
-      dom.debugTimeVal.textContent = `${sec}s`;
-      dom.timerEl.textContent = String(sec);
-    });
-
-    dom.debugTimePresetBtns.forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const sec = parseInt(btn.dataset.debugTime, 10);
-        state.timeLeft = sec;
-        dom.debugTimeSlider.value = String(sec);
-        dom.debugTimeVal.textContent = `${sec}s`;
-        dom.timerEl.textContent = String(sec);
-      });
+      const val = parseFloat(e.target.value);
+      state.baseScrollSpeed = val;
+      dom.debugSpeedVal.textContent = val.toFixed(1);
     });
   }
 
-  generateDailyMission();
-  applyCrewDeployment(state.crewCount);
+  if (dom.debugSpeedReset && dom.debugSpeedSlider && dom.debugSpeedVal) {
+    dom.debugSpeedReset.addEventListener('click', () => {
+      state.baseScrollSpeed = DEFAULT_SCROLL_SPEED;
+      dom.debugSpeedSlider.value = DEFAULT_SCROLL_SPEED.toString();
+      dom.debugSpeedVal.textContent = DEFAULT_SCROLL_SPEED.toFixed(1);
+    });
+  }
 
-  app.ui = {
-    dom,
-    updateHullHpUI,
-    updateHudRecoveryCounts,
-    generateDailyMission,
-    applyCrewDeployment,
-    showResultModal,
-    initUIEvents
-  };
-})(window.GameApp);
+  function applyDebugTime(seconds) {
+    const clamped = Math.max(1, Math.min(120, Math.round(seconds)));
+    state.timeLeft = clamped;
+    dom.timer.textContent = clamped;
+    if (dom.debugTimeSlider) dom.debugTimeSlider.value = clamped.toString();
+    if (dom.debugTimeVal) dom.debugTimeVal.textContent = `${clamped}秒`;
+    if (clamped <= 10) {
+      dom.timer.classList.add('text-rose-400');
+    } else {
+      dom.timer.classList.remove('text-rose-400');
+    }
+  }
+
+  if (dom.debugTimeSlider) {
+    dom.debugTimeSlider.addEventListener('input', (e) => {
+      applyDebugTime(parseFloat(e.target.value));
+    });
+  }
+
+  dom.debugTimePresets.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const sec = parseInt(btn.getAttribute('data-debug-time'), 10);
+      if (!isNaN(sec)) applyDebugTime(sec);
+    });
+  });
+
+  if (dom.debugCrewToggle) {
+    dom.debugCrewToggle.addEventListener('click', () => {
+      const nextCount = state.crewEnabled ? 0 : (state.selectedCrewCount > 0 ? state.selectedCrewCount : 1);
+      setSelectedCrewCount(nextCount);
+    });
+  }
+
+  dom.crewSelectButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const count = parseInt(btn.getAttribute('data-crew-count'), 10);
+      if (!isNaN(count)) setSelectedCrewCount(count);
+    });
+  });
+}
