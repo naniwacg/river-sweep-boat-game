@@ -6,13 +6,13 @@ window.GameApp = window.GameApp || {};
 (function (app) {
   const { state, CONSTANTS, world, ship, trash } = app;
   const {
-    scene,
     camera,
     renderer,
     bridges,
     getCurvedY,
     getBankLimitAtZ,
-    updateWorld
+    updateWorld,
+    resetBridges
   } = world;
 
   const {
@@ -254,7 +254,9 @@ window.GameApp = window.GameApp || {};
     shipPhysics.prevRollZ = 0;
 
     resetShipAndCrew();
-
+    if (typeof resetBridges === 'function') {
+      resetBridges();
+    }
     if (typeof populateInitialTrash === 'function') {
       populateInitialTrash();
     }
@@ -293,13 +295,13 @@ window.GameApp = window.GameApp || {};
     // X座標更新
     shipPhysics.x += shipPhysics.vx * dt;
 
-    // 護岸との接触判定（world.getBankLimitAtZ に準拠）
+    // 護岸との接触判定（getBankLimitAtZ(-1) は負、getBankLimitAtZ(1) は正を返す）
     const shipHalfBeam = 1.45;
     const minX = typeof getBankLimitAtZ === 'function'
-      ? getBankLimitAtZ(-1, 0) - shipHalfBeam
+      ? getBankLimitAtZ(-1, 0) + shipHalfBeam
       : -(CONSTANTS.BANK_LIMIT_X || 6.2) + shipHalfBeam;
     const maxX = typeof getBankLimitAtZ === 'function'
-      ? getBankLimitAtZ(1, 0) + shipHalfBeam
+      ? getBankLimitAtZ(1, 0) - shipHalfBeam
       : (CONSTANTS.BANK_LIMIT_X || 6.2) - shipHalfBeam;
 
     if (shipPhysics.x < minX) {
@@ -327,7 +329,7 @@ window.GameApp = window.GameApp || {};
         if (Math.abs(dzPier) < 3.1 && Array.isArray(b.piers)) {
           for (const pier of b.piers) {
             const dxPier = shipPhysics.x - pier.x;
-            const hitX = shipHalfBeam + (pier.radius || 0.65);
+            const hitX = shipHalfBeam + (pier.radius || 0.64);
             if (Math.abs(dxPier) < hitX) {
               const pushDir = dxPier >= 0 ? 1 : -1;
               shipPhysics.x = pier.x + pushDir * (hitX + 0.08);
@@ -403,12 +405,9 @@ window.GameApp = window.GameApp || {};
       }
     }
 
-    const currentScrollSpeed = (state.isPlaying && !state.shipCapsizing)
-      ? state.riverSpeed
-      : state.riverSpeed * 0.4;
-
+    // world.js の updateWorld(dt, elapsed) 仕様に合わせて呼び出し
     if (typeof updateWorld === 'function') {
-      updateWorld(dt, currentScrollSpeed);
+      updateWorld(dt, elapsed);
     }
 
     updateTiltParticles(dt);
