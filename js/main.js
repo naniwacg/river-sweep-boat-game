@@ -12,10 +12,10 @@ function detectControlTarget(clientX, clientY) {
   raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
 
   const targets = [];
-  if (state.selectedCrewCount >= 1 && leftNetGroup.visible) {
+  if (state.selectedCrewCount >= 1 && typeof leftNetGroup !== 'undefined' && leftNetGroup.visible) {
     targets.push({ name: 'leftNet', obj: leftNetGroup });
   }
-  if (state.selectedCrewCount >= 2 && rightNetGroup.visible) {
+  if (state.selectedCrewCount >= 2 && typeof rightNetGroup !== 'undefined' && rightNetGroup.visible) {
     targets.push({ name: 'rightNet', obj: rightNetGroup });
   }
 
@@ -68,27 +68,26 @@ function initInputEvents() {
     e.preventDefault();
 
     const now = performance.now();
-    const dtMs = Math.max(8, now - state.pointer.lastTime);
+    const dtMs = Math.max(12, now - state.pointer.lastTime);
     const dx = e.clientX - state.pointer.lastX;
     const totalDx = e.clientX - state.pointer.startX;
+    const baseWidth = Math.max(320, canvas.clientWidth || window.innerWidth);
 
     if (state.pointer.mode === 'ship') {
-      // 逆方向スワイプ操船（画面左へスワイプ＝船首を右へ振る感覚、または直感的な操舵量入力）
-      const normDx = (-dx / Math.max(280, window.innerWidth)) * 18.0;
+      // 逆方向スワイプ操船
+      const normDx = (-dx / baseWidth) * 16.0;
       const swipeSpeed = normDx / (dtMs / 1000);
 
-      state.shipPhysics.targetVx += normDx * 2.4;
-      state.shipPhysics.targetVx = Math.max(-14, Math.min(14, state.shipPhysics.targetVx));
+      state.shipPhysics.targetVx += normDx * 2.2;
+      state.shipPhysics.targetVx = Math.max(-13, Math.min(13, state.shipPhysics.targetVx));
 
-      // 高速スワイプ時の傾きブースト入力を蓄積
-      state.shipPhysics.tiltBoostInput += swipeSpeed * 0.018;
+      // 高速スワイプ時の傾きブースト（急激すぎる即転覆を抑えつつ大きく傾く係数）
+      state.shipPhysics.tiltBoostInput += swipeSpeed * 0.013;
       state.shipPhysics.tiltBoostInput = Math.max(-0.85, Math.min(0.85, state.shipPhysics.tiltBoostInput));
-    } else if (state.pointer.mode === 'leftNet') {
-      // 左舷タモ網：外側（画面左方向）へのスワイプで網を伸ばす
+    } else if (state.pointer.mode === 'leftNet' && state.nets?.left) {
       const extend = Math.max(0, Math.min(1, -totalDx / 110));
       state.nets.left.targetExtend = extend;
-    } else if (state.pointer.mode === 'rightNet') {
-      // 右舷タモ網：外側（画面右方向）へのスワイプで網を伸ばす
+    } else if (state.pointer.mode === 'rightNet' && state.nets?.right) {
       const extend = Math.max(0, Math.min(1, totalDx / 110));
       state.nets.right.targetExtend = extend;
     }
@@ -100,9 +99,9 @@ function initInputEvents() {
 
   const releasePointer = (e) => {
     if (!state.pointer.active || e.pointerId !== state.pointer.id) return;
-    if (state.pointer.mode === 'leftNet') {
+    if (state.pointer.mode === 'leftNet' && state.nets?.left) {
       state.nets.left.targetExtend = 0;
-    } else if (state.pointer.mode === 'rightNet') {
+    } else if (state.pointer.mode === 'rightNet' && state.nets?.right) {
       state.nets.right.targetExtend = 0;
     }
     state.pointer.active = false;
@@ -157,7 +156,7 @@ function startGame() {
     state.collectedByType[t.id] = 0;
   });
 
-  // 船体位置・物理状態リセット
+  // 船体位置・物理状態リセット（x の undefined による NaN を防止）
   shipGroup.position.set(0, 0, SHIP_Z);
   shipGroup.rotation.set(0, 0, 0);
   state.shipPhysics = {
@@ -171,10 +170,14 @@ function startGame() {
   };
 
   // タモ網状態リセット
-  state.nets.left.extend = 0;
-  state.nets.left.targetExtend = 0;
-  state.nets.right.extend = 0;
-  state.nets.right.targetExtend = 0;
+  if (state.nets?.left) {
+    state.nets.left.extend = 0;
+    state.nets.left.targetExtend = 0;
+  }
+  if (state.nets?.right) {
+    state.nets.right.extend = 0;
+    state.nets.right.targetExtend = 0;
+  }
 
   // 既存ゴミオブジェクトのクリア
   if (typeof clearAllTrash === 'function') {
@@ -199,6 +202,9 @@ function startGame() {
 // 船体物理・水しぶき・護岸および橋脚との衝突更新
 function updateShipAndCollisions(dt) {
   const phys = state.shipPhysics;
+  if (typeof phys.x !== 'number' || Number.isNaN(phys.x)) {
+    phys.x = shipGroup.position.x || 0;
+  }
 
   // 入力減衰
   phys.targetVx *= Math.pow(0.04, dt);
@@ -235,12 +241,16 @@ function updateShipAndCollisions(dt) {
     applyHullDamage(18);
   }
 
-  // 水中橋脚との接触判定（world.js の橋リストを参照）
-  if (typeof activeBridges !== 'undefined' && Array.isArray(activeBridges)) {
-    for (const bridge of activeBridges) {
+  // 水中橋脚との接触判定（activeBridges / bridges の両変数名に対応）
+  const bridgeList = typeof activeBridges !== 'undefined'
+    ? activeBridges
+    : (typeof bridges !== 'undefined' ? bridges : null);
+
+  if (Array.isArray(bridgeList)) {
+    for (const bridge of bridgeList) {
       if (!bridge.piers) continue;
       for (const pier of bridge.piers) {
-        const worldZ = bridge.group.position.z + pier.z;
+        const worldZ = (bridge.group ? bridge.group.position.z : (bridge.z || 0)) + (pier.z || 0);
         const worldX = pier.x;
         const dz = Math.abs(worldZ - SHIP_Z);
         const dx = phys.x - worldX;
@@ -261,7 +271,7 @@ function updateShipAndCollisions(dt) {
   // 目標ロール角の算出（横移動速度 ＋ 高速スワイプブースト）
   const targetRollZ = Math.max(
     -1.05,
-    Math.min(1.05, -phys.vx * 0.085 - phys.delayedTiltBoost * 0.68)
+    Math.min(1.05, -phys.vx * 0.075 - phys.delayedTiltBoost * 0.62)
   );
   phys.currentRollZ += (targetRollZ - phys.currentRollZ) * (1 - Math.exp(-10.0 * dt));
 
@@ -286,7 +296,8 @@ function updateShipAndCollisions(dt) {
   }
 
   // 50度超の傾きで転覆判定
-  if (state.phase === 'playing' && Math.abs(phys.currentRollZ) > FALL_THRESHOLD_RAD) {
+  const fallRad = typeof FALL_THRESHOLD_RAD !== 'undefined' ? FALL_THRESHOLD_RAD : (50 * Math.PI) / 180;
+  if (state.phase === 'playing' && Math.abs(phys.currentRollZ) > fallRad) {
     endGame('capsize');
   }
 }
@@ -352,9 +363,11 @@ function animate(now) {
 
 // ウィンドウリサイズ対応
 window.addEventListener('resize', () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
+  const width = renderer.domElement.clientWidth || window.innerWidth;
+  const height = renderer.domElement.clientHeight || window.innerHeight;
+  camera.aspect = width / height;
   camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(width, height, false);
 });
 
 // 初期化シーケンス
