@@ -87,14 +87,14 @@ window.GameApp = window.GameApp || {};
         const isMet = hasQuota && count >= quota;
 
         const countHtml = hasQuota
-          ? `<span class="${isMet ? 'text-emerald-400' : 'text-amber-300'} font-extrabold tabular-nums ml-3">${count}/${quota}</span>`
-          : `<span class="text-slate-200 font-bold tabular-nums ml-3">${count}</span>`;
+          ? `<span class="${isMet ? 'text-emerald-400' : 'text-amber-300'} font-extrabold tabular-nums">${count}/${quota}</span>`
+          : `<span class="text-slate-200 font-bold tabular-nums">${count}</span>`;
 
         return `
-          <div class="flex items-center justify-between gap-2">
-            <div class="flex items-center gap-1.5">
-              <span class="w-2 h-2 rounded-full ${v.dotColor} shrink-0"></span>
-              <span class="text-slate-300">${v.shortLabel}</span>
+          <div class="flex items-center justify-between gap-2" title="${v.label}">
+            <div class="flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full ${v.dotColor} shrink-0"></span>
+              <span class="text-sm leading-none">${v.icon}</span>
             </div>
             ${countHtml}
           </div>
@@ -111,12 +111,12 @@ window.GameApp = window.GameApp || {};
     if (dom.missionTypeQuotasEl) {
       const activeQuotas = TRASH_VARIANTS.filter((v) => (state.missionTypeTargets[v.id] || 0) > 0);
       dom.missionTypeQuotasEl.innerHTML = activeQuotas.map((v) => `
-        <div class="flex items-center justify-between bg-slate-800/90 border border-slate-700/60 rounded-lg px-2.5 py-1.5">
-          <div class="flex items-center gap-1.5 truncate">
+        <div class="flex items-center justify-between bg-slate-800/90 border border-slate-700/60 rounded-lg px-2.5 py-1.5" title="${v.label}">
+          <div class="flex items-center gap-1.5">
             <span class="w-2 h-2 rounded-full ${v.dotColor} shrink-0"></span>
-            <span class="text-slate-200 font-medium truncate">${v.label}</span>
+            <span class="text-base leading-none">${v.icon}</span>
           </div>
-          <span class="text-amber-300 font-extrabold tabular-nums ml-1">${state.missionTypeTargets[v.id]}<span class="text-[12px] text-slate-400 font-normal ml-0.5">個</span></span>
+          <span class="text-amber-300 font-extrabold tabular-nums">${state.missionTypeTargets[v.id]}</span>
         </div>
       `).join('');
     }
@@ -142,39 +142,39 @@ window.GameApp = window.GameApp || {};
     dom.crewSelectBtns.forEach((btn) => {
       const btnCount = Number(btn.dataset.crewCount);
       btn.className = btnCount === normalized
-        ? 'crew-select-btn bg-sky-500/20 text-sky-300 border border-sky-400 rounded-lg py-1.5 px-2 text-center transition-all cursor-pointer shadow-sm'
-        : 'crew-select-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg py-1.5 px-2 text-center transition-all cursor-pointer';
+        ? 'crew-select-btn bg-sky-500/20 text-sky-300 border border-sky-400 rounded-lg py-1.5 px-1.5 text-center transition-all cursor-pointer shadow-sm'
+        : 'crew-select-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg py-1.5 px-1.5 text-center transition-all cursor-pointer';
     });
 
     const totalCost = normalized * state.crewCostPerPerson;
     if (dom.missionCrewCostBadgeEl) {
       if (normalized === 0) {
-        dom.missionCrewCostBadgeEl.textContent = '船員費用: ¥0（低コスト・高評価）';
-        dom.missionCrewCostBadgeEl.className = 'text-[13px] font-bold text-emerald-400';
+        dom.missionCrewCostBadgeEl.textContent = '費用 ¥0（高評価狙い）';
+        dom.missionCrewCostBadgeEl.className = 'text-xs font-bold text-emerald-400';
       } else if (normalized === 1) {
-        dom.missionCrewCostBadgeEl.textContent = `船員費用: ¥${totalCost.toLocaleString()}（コスト中）`;
-        dom.missionCrewCostBadgeEl.className = 'text-[13px] font-bold text-amber-300';
+        dom.missionCrewCostBadgeEl.textContent = `費用 ¥${totalCost.toLocaleString()}（中コスト）`;
+        dom.missionCrewCostBadgeEl.className = 'text-xs font-bold text-amber-300';
       } else {
-        dom.missionCrewCostBadgeEl.textContent = `船員費用: ¥${totalCost.toLocaleString()}（コスト高）`;
-        dom.missionCrewCostBadgeEl.className = 'text-[13px] font-bold text-rose-400';
+        dom.missionCrewCostBadgeEl.textContent = `費用 ¥${totalCost.toLocaleString()}（高コスト）`;
+        dom.missionCrewCostBadgeEl.className = 'text-xs font-bold text-rose-400';
       }
     }
 
     if (dom.missionCrewNoteEl) {
       if (normalized === 0) {
-        dom.missionCrewNoteEl.textContent = '船首コンベアのみで清掃します。船員費用ゼロのため高評価（Aランク）を狙えます！';
+        dom.missionCrewNoteEl.textContent = 'コンベアのみで清掃（低コストでA評価狙い）';
       } else if (normalized === 1) {
-        dom.missionCrewNoteEl.textContent = '左舷に船員1名を配置。費用¥5,000が発生し、A評価にはノルマ+25%以上の回収が必要です。';
+        dom.missionCrewNoteEl.textContent = '左舷の網で回収可（A評価には+25%回収が必要）';
       } else {
-        dom.missionCrewNoteEl.textContent = '両舷に船員2名を配置。網は強力ですが費用¥10,000により清掃コストが上がり、最高評価はBになります。';
+        dom.missionCrewNoteEl.textContent = '両舷の網で強力回収（費用増により最高B評価）';
       }
     }
 
     if (dom.debugCrewToggleBtn) {
       dom.debugCrewToggleBtn.textContent = state.crewEnabled ? `ON (${normalized}名)` : 'OFF';
       dom.debugCrewToggleBtn.className = state.crewEnabled
-        ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 text-xs font-extrabold px-3 py-1.5 rounded-xl transition-all cursor-pointer'
-        : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-600 text-xs font-extrabold px-3 py-1.5 rounded-xl transition-all cursor-pointer';
+        ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 text-[11px] font-extrabold px-2.5 py-1 rounded-xl transition-all cursor-pointer'
+        : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-600 text-[11px] font-extrabold px-2.5 py-1 rounded-xl transition-all cursor-pointer';
     }
 
     ship.crewMembers.forEach((crew, idx) => {
@@ -203,16 +203,16 @@ window.GameApp = window.GameApp || {};
         : 'border-slate-700/50 bg-slate-900/70';
 
       const countDisplay = hasQuota
-        ? `<span class="${isMet ? 'text-emerald-400' : 'text-amber-300'} font-extrabold tabular-nums">${count}/${quota}<span class="text-[12px] text-slate-400 font-normal ml-0.5">個</span></span>`
-        : `<span class="text-white font-extrabold tabular-nums">${count}<span class="text-[12px] text-slate-400 font-normal ml-0.5">個</span></span>`;
+        ? `<span class="${isMet ? 'text-emerald-400' : 'text-amber-300'} font-extrabold tabular-nums">${count}/${quota}</span>`
+        : `<span class="text-white font-extrabold tabular-nums">${count}</span>`;
 
       return `
-        <div class="flex items-center justify-between border ${borderClass} rounded-xl px-3 py-2">
-          <div class="flex items-center gap-2 truncate">
-            <span class="w-2.5 h-2.5 rounded-full ${v.dotColor} shrink-0"></span>
-            <span class="text-slate-200 font-medium truncate">${v.label}</span>
+        <div class="flex items-center justify-between border ${borderClass} rounded-xl px-3 py-2" title="${v.label}">
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full ${v.dotColor} shrink-0"></span>
+            <span class="text-base leading-none">${v.icon}</span>
           </div>
-          <div class="ml-1 shrink-0">${countDisplay}</div>
+          <div class="shrink-0">${countDisplay}</div>
         </div>
       `;
     }).join('');
