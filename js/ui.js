@@ -41,9 +41,23 @@ const dom = {
   debugCrewToggle: document.getElementById('debug-crew-toggle')
 };
 
+const DEFAULT_TRASH_ICONS = {
+  pet: '🧴',
+  styrofoam: '🧊',
+  can: '🥫',
+  plastic: '🛍️'
+};
+
+function getTrashIcon(type) {
+  return type.icon || DEFAULT_TRASH_ICONS[type.id] || '🗑️';
+}
+
 // 船体耐久ゲージ更新
 function updateHullHpUI() {
-  const ratio = Math.max(0, Math.min(100, (state.hullHp / state.maxHullHp) * 100));
+  const maxHp = state.maxHullHp || 100;
+  const currentHp = typeof state.hullHp === 'number' ? state.hullHp : maxHp;
+  const ratio = Math.max(0, Math.min(100, (currentHp / maxHp) * 100));
+
   if (dom.hullHpText) dom.hullHpText.textContent = `${Math.ceil(ratio)}%`;
   if (dom.hullHpBar) {
     dom.hullHpBar.style.width = `${ratio}%`;
@@ -73,7 +87,8 @@ function setSelectedCrewCount(count) {
     }
   });
 
-  const totalCost = normalized * CREW_UNIT_COST;
+  const unitCost = typeof CREW_UNIT_COST !== 'undefined' ? CREW_UNIT_COST : 5000;
+  const totalCost = normalized * unitCost;
   if (dom.missionCrewCostBadge && dom.missionCrewNote) {
     if (normalized === 0) {
       dom.missionCrewCostBadge.textContent = '費用 ¥0（高評価狙い）';
@@ -95,9 +110,11 @@ function setSelectedCrewCount(count) {
 
 // 船員有効/無効の表示同期
 function syncCrewEnabledUI() {
+  const activeCount = state.crewEnabled ? Math.max(1, state.selectedCrewCount || 1) : 0;
+
   if (dom.debugCrewToggle) {
     if (state.crewEnabled) {
-      dom.debugCrewToggle.textContent = `有効 (${state.selectedCrewCount}名)`;
+      dom.debugCrewToggle.textContent = `有効 (${activeCount}名)`;
       dom.debugCrewToggle.className = 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 text-xs font-extrabold px-2.5 py-1 rounded-xl transition-all cursor-pointer';
     } else {
       dom.debugCrewToggle.textContent = '無効';
@@ -117,11 +134,14 @@ function syncCrewEnabledUI() {
 // HUD左上のゴミ種別ごとのリアルタイム回収カウントを更新（アイコンのみ）
 function updateHudTypeCounts() {
   if (!dom.hudTypeCounts) return;
+  if (!state.mission) state.mission = { totalTarget: 15, quotas: {} };
+  if (!state.collectedByType) state.collectedByType = {};
+
   dom.hudTypeCounts.innerHTML = '';
 
   TRASH_TYPES.forEach((type) => {
     const current = state.collectedByType[type.id] || 0;
-    const quota = state.mission.quotas[type.id] || 0;
+    const quota = (state.mission.quotas && state.mission.quotas[type.id]) || 0;
     const isCleared = quota > 0 && current >= quota;
 
     const row = document.createElement('div');
@@ -136,7 +156,7 @@ function updateHudTypeCounts() {
     row.innerHTML = `
       <span class="inline-flex items-center gap-1 text-slate-200">
         <span class="w-2 h-2 rounded-full inline-block shrink-0" style="background-color: ${type.badgeColor}"></span>
-        <span class="text-sm leading-none" aria-label="${type.name}">${type.icon}</span>
+        <span class="text-sm leading-none" aria-label="${type.name}">${getTrashIcon(type)}</span>
       </span>
       <span class="${countClass} tabular-nums">${countText}${isCleared ? ' ✓' : ''}</span>
     `;
@@ -146,7 +166,8 @@ function updateHudTypeCounts() {
 
 // 日替わりミッション生成（総数目標 ＋ 種別回収ノルマ）
 function generateDailyMission() {
-  const totalTarget = Math.min(14, 7 + Math.floor((state.day - 1) * 1.5) + Math.floor(Math.random() * 3));
+  const day = state.day || 1;
+  const totalTarget = Math.min(14, 7 + Math.floor((day - 1) * 1.5) + Math.floor(Math.random() * 3));
   const shuffled = [...TRASH_TYPES].sort(() => Math.random() - 0.5);
   const pickedTypes = shuffled.slice(0, 2);
 
@@ -165,7 +186,7 @@ function generateDailyMission() {
     quotas
   };
 
-  if (dom.missionDayBadge) dom.missionDayBadge.textContent = `${state.day}日目`;
+  if (dom.missionDayBadge) dom.missionDayBadge.textContent = `${day}日目`;
   if (dom.missionTargetText) {
     dom.missionTargetText.innerHTML = `ゴミ総数 <span class="text-sky-400">${state.mission.totalTarget}</span> 個以上`;
   }
@@ -182,7 +203,7 @@ function generateDailyMission() {
       item.innerHTML = `
         <span class="inline-flex items-center gap-1.5 text-slate-200 font-semibold">
           <span class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background-color: ${t.badgeColor}"></span>
-          <span class="text-base leading-none" aria-label="${t.name}">${t.icon}</span>
+          <span class="text-base leading-none" aria-label="${t.name}">${getTrashIcon(t)}</span>
         </span>
         <span class="font-extrabold text-amber-300 tabular-nums">${quotas[t.id]}個</span>
       `;
@@ -195,15 +216,17 @@ function generateDailyMission() {
 
 // 総合評価ランク（A / B / C）計算（船員配置コスト加味）
 function evaluateMissionResult() {
+  if (!state.mission) state.mission = { totalTarget: 15, quotas: {} };
+
   const target = state.mission.totalTarget;
   const totalRatio = target > 0 ? state.score / target : 1;
 
-  const quotaEntries = Object.entries(state.mission.quotas);
+  const quotaEntries = Object.entries(state.mission.quotas || {});
   let clearedQuotas = 0;
   let quotaRatioSum = 0;
 
   quotaEntries.forEach(([typeId, req]) => {
-    const got = state.collectedByType[typeId] || 0;
+    const got = (state.collectedByType && state.collectedByType[typeId]) || 0;
     if (got >= req) clearedQuotas++;
     quotaRatioSum += req > 0 ? Math.min(1.2, got / req) : 1;
   });
@@ -211,8 +234,9 @@ function evaluateMissionResult() {
   const avgQuotaRatio = quotaEntries.length > 0 ? quotaRatioSum / quotaEntries.length : 1;
   const allQuotasCleared = clearedQuotas === quotaEntries.length;
 
-  const activeCrew = state.crewEnabled ? state.selectedCrewCount : 0;
-  const crewCost = activeCrew * CREW_UNIT_COST;
+  const unitCost = typeof CREW_UNIT_COST !== 'undefined' ? CREW_UNIT_COST : 5000;
+  const activeCrew = state.crewEnabled ? Math.max(1, state.selectedCrewCount || 1) : 0;
+  const crewCost = activeCrew * unitCost;
 
   if (activeCrew === 0) {
     if (state.score >= target && allQuotasCleared) {
@@ -250,11 +274,14 @@ function evaluateMissionResult() {
 // ゲーム終了・リザルト画面表示
 function endGame(reason = 'timeup') {
   state.phase = 'gameover';
-  dom.resultMissionTarget.textContent = state.mission.totalTarget;
+  if (!state.mission) state.mission = { totalTarget: 15, quotas: {} };
+  if (dom.resultMissionTarget) dom.resultMissionTarget.textContent = state.mission.totalTarget;
 
   const evalRes = evaluateMissionResult();
   const pct = Math.round((state.score / Math.max(1, state.mission.totalTarget)) * 100);
-  dom.resultProgressDetail.textContent = `回収 ${state.score}個（達成率 ${pct}%）`;
+  if (dom.resultProgressDetail) {
+    dom.resultProgressDetail.textContent = `回収 ${state.score}個（達成率 ${pct}%）`;
+  }
 
   if (dom.resultCostDetail) {
     dom.resultCostDetail.textContent = `船員費用: ¥${evalRes.crewCost.toLocaleString()} (${evalRes.activeCrew}名)`;
@@ -263,7 +290,9 @@ function endGame(reason = 'timeup') {
       : (evalRes.activeCrew === 1 ? 'text-xs font-bold text-amber-300 mt-0.5' : 'text-xs font-bold text-rose-400 mt-0.5');
   }
 
-  dom.resultQuotaSummary.textContent = `${evalRes.clearedQuotas} / ${evalRes.totalQuotas} 達成`;
+  if (dom.resultQuotaSummary) {
+    dom.resultQuotaSummary.textContent = `${evalRes.clearedQuotas} / ${evalRes.totalQuotas} 達成`;
+  }
 
   if (reason === 'capsize' || reason === 'hull_destroyed') {
     const isHull = reason === 'hull_destroyed';
@@ -293,22 +322,24 @@ function endGame(reason = 'timeup') {
       dom.resultComment.textContent = '低コスト・高効率の素晴らしい清掃活動でした！';
       dom.resultComment.className = 'text-xs font-semibold text-emerald-400 mb-3';
     } else if (evalRes.rank === 'B') {
-      dom.resultComment.textContent = evalRes.activeCrew > 0
-        ? '業務完了！（船員コストを抑えるとA評価を狙えます）'
-        : 'お疲れさまでした！あと少しでA評価です';
+      dom.resultComment.textContent = evalRes.activeCrew === 1
+        ? `業務完了！（1名配置のA評価は${Math.ceil(state.mission.totalTarget * 1.25)}個以上）`
+        : (evalRes.activeCrew > 1
+            ? '業務完了！（船員コストを抑えるとA評価を狙えます）'
+            : 'お疲れさまでした！あと少しでA評価です');
       dom.resultComment.className = 'text-xs font-semibold text-sky-400 mb-3';
     } else {
       dom.resultComment.textContent = '目標未達…次はノルマ達成を目指そう';
       dom.resultComment.className = 'text-xs font-semibold text-amber-400 mb-3';
     }
 
-    state.day += 1;
+    state.day = (state.day || 1) + 1;
   }
 
   dom.resultBreakdown.innerHTML = '';
   TRASH_TYPES.forEach(type => {
-    const count = state.collectedByType[type.id] || 0;
-    const quota = state.mission.quotas[type.id] || 0;
+    const count = (state.collectedByType && state.collectedByType[type.id]) || 0;
+    const quota = (state.mission.quotas && state.mission.quotas[type.id]) || 0;
     const isQuotaTarget = quota > 0;
     const isCleared = isQuotaTarget && count >= quota;
 
@@ -327,7 +358,7 @@ function endGame(reason = 'timeup') {
     item.innerHTML = `
       <span class="flex items-center gap-1.5 text-slate-200 font-medium">
         <span class="w-2.5 h-2.5 rounded-full inline-block shrink-0" style="background-color: ${type.badgeColor}"></span>
-        <span class="text-base leading-none" aria-label="${type.name}">${type.icon}</span>
+        <span class="text-base leading-none" aria-label="${type.name}">${getTrashIcon(type)}</span>
       </span>
       ${valueHtml}
     `;
@@ -354,24 +385,27 @@ function initDebugUI() {
     });
   }
 
+  const defaultSpeed = typeof DEFAULT_SCROLL_SPEED !== 'undefined' ? DEFAULT_SCROLL_SPEED : 4.5;
   if (dom.debugSpeedReset && dom.debugSpeedSlider && dom.debugSpeedVal) {
     dom.debugSpeedReset.addEventListener('click', () => {
-      state.baseScrollSpeed = DEFAULT_SCROLL_SPEED;
-      dom.debugSpeedSlider.value = DEFAULT_SCROLL_SPEED.toString();
-      dom.debugSpeedVal.textContent = DEFAULT_SCROLL_SPEED.toFixed(1);
+      state.baseScrollSpeed = defaultSpeed;
+      dom.debugSpeedSlider.value = defaultSpeed.toString();
+      dom.debugSpeedVal.textContent = defaultSpeed.toFixed(1);
     });
   }
 
   function applyDebugTime(seconds) {
     const clamped = Math.max(1, Math.min(120, Math.round(seconds)));
     state.timeLeft = clamped;
-    dom.timer.textContent = clamped;
+    if (dom.timer) dom.timer.textContent = clamped;
     if (dom.debugTimeSlider) dom.debugTimeSlider.value = clamped.toString();
     if (dom.debugTimeVal) dom.debugTimeVal.textContent = `${clamped}秒`;
-    if (clamped <= 10) {
-      dom.timer.classList.add('text-rose-400');
-    } else {
-      dom.timer.classList.remove('text-rose-400');
+    if (dom.timer) {
+      if (clamped <= 10) {
+        dom.timer.classList.add('text-rose-400');
+      } else {
+        dom.timer.classList.remove('text-rose-400');
+      }
     }
   }
 
@@ -390,8 +424,11 @@ function initDebugUI() {
 
   if (dom.debugCrewToggle) {
     dom.debugCrewToggle.addEventListener('click', () => {
-      const nextCount = state.crewEnabled ? 0 : (state.selectedCrewCount > 0 ? state.selectedCrewCount : 1);
-      setSelectedCrewCount(nextCount);
+      state.crewEnabled = !state.crewEnabled;
+      if (state.crewEnabled && (!state.selectedCrewCount || state.selectedCrewCount <= 0)) {
+        state.selectedCrewCount = 1;
+      }
+      syncCrewEnabledUI();
     });
   }
 
