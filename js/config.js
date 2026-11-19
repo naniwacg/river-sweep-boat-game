@@ -18,6 +18,7 @@ window.GameApp = window.GameApp || {};
   app.TRASH_VARIANTS = [
     {
       id: 'bottle',
+      icon: '🧴',
       label: 'ペットボトル',
       shortLabel: 'ペットボトル',
       dotColor: 'bg-sky-400',
@@ -26,6 +27,7 @@ window.GameApp = window.GameApp || {};
     },
     {
       id: 'foam',
+      icon: '🧊',
       label: '発泡スチロール',
       shortLabel: '発泡スチロール',
       dotColor: 'bg-red-500',
@@ -34,6 +36,7 @@ window.GameApp = window.GameApp || {};
     },
     {
       id: 'can',
+      icon: '🥫',
       label: '空き缶',
       shortLabel: '空き缶',
       dotColor: 'bg-slate-200',
@@ -42,6 +45,7 @@ window.GameApp = window.GameApp || {};
     },
     {
       id: 'plastic',
+      icon: '🛍️',
       label: '漂流プラごみ',
       shortLabel: 'プラごみ',
       dotColor: 'bg-amber-400',
