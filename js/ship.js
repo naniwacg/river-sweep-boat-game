@@ -163,7 +163,9 @@ window.GameApp = window.GameApp || {};
       initialYaw,
       swingTimer: 0,
       targetWorldPos: new THREE.Vector3(),
-      isDeployed: false
+      isDeployed: false,
+      fallVel: new THREE.Vector3(),
+      hasSplashed: false
     };
   }
 
@@ -240,6 +242,28 @@ window.GameApp = window.GameApp || {};
     tiltParticleGeo.attributes.position.needsUpdate = true;
   }
 
+  // 船員落水地点の水しぶき
+  function spawnSplashAtWorldPos(worldPos) {
+    for (let n = 0; n < 24; n++) {
+      const idx = tiltParticleCursor;
+      tiltParticleCursor = (tiltParticleCursor + 1) % TILT_PARTICLE_COUNT;
+
+      tiltParticlePos[idx * 3] = worldPos.x + (Math.random() - 0.5) * 0.5;
+      tiltParticlePos[idx * 3 + 1] = worldPos.y + 0.15;
+      tiltParticlePos[idx * 3 + 2] = worldPos.z + (Math.random() - 0.5) * 0.5;
+
+      const angle = Math.random() * Math.PI * 2;
+      const spd = 1.5 + Math.random() * 3.0;
+      tiltParticleVel[idx].set(
+        Math.cos(angle) * spd,
+        2.8 + Math.random() * 2.8,
+        Math.sin(angle) * spd
+      );
+      tiltParticleLife[idx] = 0.65 + Math.random() * 0.35;
+    }
+    tiltParticleGeo.attributes.position.needsUpdate = true;
+  }
+
   function updateTiltParticles(dt) {
     for (let i = 0; i < TILT_PARTICLE_COUNT; i++) {
       if (tiltParticleLife[i] > 0) {
@@ -297,6 +321,91 @@ window.GameApp = window.GameApp || {};
     crew.netPivot.scale.set(1, 1, 1);
   }
 
+  // 40度到達時の船員振り落とし開始
+  function triggerCrewFallOut(rollZ) {
+    if (!state.crewEnabled) return false;
+    const deployedCrews = crewMembers.filter((c) => c.isDeployed);
+    if (deployedCrews.length === 0) return false;
+
+    // 沈み込んでいる側（rollZ > 0 なら -X 側、rollZ < 0 なら +X 側）の船員を優先的に振り落とす
+    const lowSideSign = rollZ > 0 ? -1 : 1;
+    let targetCrew = deployedCrews.find((c) => c.sideSign === lowSideSign) || deployedCrews[0];
+
+    shipParent.updateMatrixWorld(true);
+    const worldPos = new THREE.Vector3();
+    const worldQuat = new THREE.Quaternion();
+    targetCrew.group.getWorldPosition(worldPos);
+    targetCrew.group.getWorldQuaternion(worldQuat);
+
+    scene.add(targetCrew.group);
+    targetCrew.group.position.copy(worldPos);
+    targetCrew.group.quaternion.copy(worldQuat);
+    targetCrew.alertIcon.visible = true;
+    targetCrew.hasSplashed = false;
+    targetCrew.fallVel.set(lowSideSign * 3.4, 3.2, -0.4);
+
+    state.fallingCrew = targetCrew;
+    return true;
+  }
+
+  // 船員落水中の落下・水面浮上・救助復帰アニメーション
+  function updateCrewFallOut(dt, elapsed) {
+    const crew = state.fallingCrew;
+    if (!crew) return;
+
+    const waterY = typeof getCurvedY === 'function' ? getCurvedY(crew.group.position.z) : 0;
+
+    if (state.crewFallTimer < 1.35) {
+      // 落下＆着水後のバタつき
+      if (!crew.hasSplashed) {
+        crew.fallVel.y -= 13.5 * dt;
+        crew.group.position.addScaledVector(crew.fallVel, dt);
+        crew.group.rotation.z += crew.fallVel.x * 2.2 * dt;
+
+        if (crew.group.position.y <= waterY - 0.15) {
+          crew.group.position.y = waterY - 0.15;
+          crew.hasSplashed = true;
+          spawnSplashAtWorldPos(crew.group.position);
+        }
+      } else {
+        // 水面で浮き沈みしながら救助待ち
+        crew.group.position.y = waterY - 0.15 + Math.sin(elapsed * 12) * 0.08;
+        crew.group.rotation.z = Math.sin(elapsed * 10) * 0.35;
+        if (Math.random() < 0.35) {
+          spawnSplashAtWorldPos(crew.group.position);
+        }
+      }
+    } else {
+      // 救助引き上げ（船の定位置へ戻る）
+      shipParent.updateMatrixWorld(true);
+      const targetWorld = crew.homePos.clone().applyMatrix4(shipVisual.matrixWorld);
+      crew.group.position.lerp(targetWorld, Math.min(1, dt * 6.5));
+      crew.group.rotation.x = THREE.MathUtils.lerp(crew.group.rotation.x, 0, dt * 8);
+      crew.group.rotation.y = THREE.MathUtils.lerp(crew.group.rotation.y, 0, dt * 8);
+      crew.group.rotation.z = THREE.MathUtils.lerp(crew.group.rotation.z, 0, dt * 8);
+    }
+
+    if (crew.alertIcon) {
+      crew.alertIcon.visible = true;
+      crew.alertIcon.lookAt(camera.position);
+    }
+  }
+
+  // 落水した船員を甲板へ完全に復帰させる
+  function restoreFallenCrew() {
+    const crew = state.fallingCrew;
+    if (crew) {
+      if (crew.group.parent !== shipVisual) {
+        shipVisual.add(crew.group);
+      }
+      crew.group.position.copy(crew.homePos);
+      crew.group.rotation.set(0, 0, 0);
+      crew.alertIcon.visible = false;
+      crew.hasSplashed = false;
+    }
+    state.fallingCrew = null;
+  }
+
   function updateCapsizeAnimation(dt) {
     state.capsizeProgress += dt;
     const targetCapsizeRoll = state.capsizeDir * Math.PI;
@@ -340,6 +449,8 @@ window.GameApp = window.GameApp || {};
 
     crewMembers.forEach((crew, idx) => {
       if (!crew.isDeployed) return;
+      if (state.fallingCrew === crew) return;
+
       crew.alertIcon.visible = isDangerTilt;
       if (isDangerTilt) {
         crew.alertIcon.lookAt(camera.position);
@@ -370,6 +481,9 @@ window.GameApp = window.GameApp || {};
   function resetShipAndCrew() {
     hullMat.emissive.setHex(0x000000);
     orangeMat.emissive.setHex(0x000000);
+    state.fallingCrew = null;
+    state.crewFalling = false;
+    state.crewFallTimer = 0;
 
     crewMembers.forEach((crew, idx) => {
       if (crew.group.parent !== shipVisual) {
@@ -383,6 +497,7 @@ window.GameApp = window.GameApp || {};
       crew.netPivot.rotation.set(0, crew.initialYaw, 0);
       crew.netPivot.scale.set(1, 1, 1);
       crew.swingTimer = 0;
+      crew.hasSplashed = false;
       crew.alertIcon.visible = false;
     });
 
@@ -412,6 +527,9 @@ window.GameApp = window.GameApp || {};
     spawnTiltSpray,
     updateTiltParticles,
     updateCrewNetAim,
+    triggerCrewFallOut,
+    updateCrewFallOut,
+    restoreFallenCrew,
     updateCapsizeAnimation,
     updateCrewStability,
     resetShipAndCrew
