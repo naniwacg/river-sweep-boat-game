@@ -32,12 +32,6 @@ window.GameApp = window.GameApp || {};
     resetShipAndCrew
   } = ship;
 
-  const {
-    populateInitialTrash,
-    catchTrashWithCrewNet,
-    updateTrash
-  } = trash;
-
   // 操船物理ステート（ワンテンポ遅れる慣性追従 ＋ 高速スワイプ傾き増幅）
   const shipPhysics = {
     x: 0,
@@ -157,8 +151,8 @@ window.GameApp = window.GameApp || {};
 
       if (pointerState.mode === 'net' && pointerState.activeCrew) {
         pointerState.activeCrew.swingTimer = 0.45;
-        if (typeof catchTrashWithCrewNet === 'function') {
-          catchTrashWithCrewNet(pointerState.activeCrew);
+        if (trash && typeof trash.catchTrashWithCrewNet === 'function') {
+          trash.catchTrashWithCrewNet(pointerState.activeCrew);
         }
       }
 
@@ -257,8 +251,8 @@ window.GameApp = window.GameApp || {};
     if (typeof resetBridges === 'function') {
       resetBridges();
     }
-    if (typeof populateInitialTrash === 'function') {
-      populateInitialTrash();
+    if (trash && typeof trash.populateInitialTrash === 'function') {
+      trash.populateInitialTrash();
     }
 
     if (app.ui) {
@@ -345,7 +339,7 @@ window.GameApp = window.GameApp || {};
       }
     }
 
-    // 目標ロール角（左右反転後：正の符号で計算）
+    // 目標ロール角
     const targetRollZ = THREE.MathUtils.clamp(
       shipPhysics.vx * 0.075 + shipPhysics.delayedTiltBoost * 0.66,
       -1.08,
@@ -365,7 +359,7 @@ window.GameApp = window.GameApp || {};
     shipVisual.rotation.y = -shipPhysics.vx * 0.03;
     shipVisual.rotation.x = Math.cos(elapsed * 2.8) * 0.025;
 
-    // 水しぶきパーティクル発生（反転後の傾き方向に連動）
+    // 水しぶきパーティクル発生
     const sprayDeg = CONSTANTS.SPRAY_THRESHOLD_DEG || 12.0;
     if (rollDeg > sprayDeg) {
       const splashSide = shipPhysics.currentRollZ > 0 ? 1 : -1;
@@ -428,16 +422,17 @@ window.GameApp = window.GameApp || {};
 
       updateShipPhysics(dt, elapsed);
 
-      if (!state.shipCapsizing && typeof updateTrash === 'function') {
-        updateTrash(dt, elapsed, handleTrashCollected);
+      if (!state.shipCapsizing && trash && typeof trash.updateTrash === 'function') {
+        trash.updateTrash(dt, elapsed, handleTrashCollected);
       }
     } else {
       // タイトル・リザルト画面でのアイドル揺れ
+      shipPhysics.x = 0;
       const baseWaveY = typeof getCurvedY === 'function' ? getCurvedY(0) : 0;
       shipParent.position.set(0, baseWaveY + Math.sin(elapsed * 2.4) * 0.06, 0);
       shipVisual.rotation.z = Math.sin(elapsed * 1.8) * 0.04;
-      if (typeof updateTrash === 'function') {
-        updateTrash(dt, elapsed, null);
+      if (trash && typeof trash.updateTrash === 'function') {
+        trash.updateTrash(dt, elapsed, null);
       }
     }
 
