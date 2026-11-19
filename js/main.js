@@ -346,10 +346,11 @@ window.GameApp = window.GameApp || {};
     }
 
     // 目標ロール角（進行方向側が水の抵抗で浮き上がるように傾く）
-    // 右移動(vx < 0)で右側(-X)が浮き上がる = rotation.z < 0
-    // 左移動(vx > 0)で左側(+X)が浮き上がる = rotation.z > 0
+    // カメラ(-Z)から+Zを見る視点では、Z軸正回転(rotation.z > 0)で画面右側(-X側)が浮き上がる
+    // 右移動(vx < 0) → rotation.z > 0（右側が浮く）
+    // 左移動(vx > 0) → rotation.z < 0（左側が浮く）
     const targetRollZ = THREE.MathUtils.clamp(
-      shipPhysics.vx * 0.075 + shipPhysics.delayedTiltBoost * 0.66,
+      -shipPhysics.vx * 0.075 - shipPhysics.delayedTiltBoost * 0.66,
       -1.08,
       1.08
     );
@@ -370,7 +371,7 @@ window.GameApp = window.GameApp || {};
     // 水しぶきパーティクル発生（水の抵抗を受ける進行方向側から水しぶきを上げる）
     const sprayDeg = CONSTANTS.SPRAY_THRESHOLD_DEG || 12.0;
     if (rollDeg > sprayDeg) {
-      const splashSide = shipPhysics.currentRollZ > 0 ? 1 : -1;
+      const splashSide = shipPhysics.currentRollZ > 0 ? -1 : 1;
       const intensity = THREE.MathUtils.clamp((rollDeg - sprayDeg) / 30.0, 0.25, 1.0);
       spawnTiltSpray(splashSide, intensity);
     }
