@@ -9,16 +9,12 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://naniwacg.github.io/river-sweep-boat-game/css/style.css">
   <style>
-    *, *::before, *::after {
-      box-sizing: border-box;
-    }
     html, body {
       margin: 0;
       padding: 0;
       width: 100%;
       height: 100%;
-      max-width: 100vw;
-      max-height: 100dvh;
+      height: 100dvh;
       overflow: hidden;
       font-family: 'Inter', sans-serif;
       background-color: #0f172a;
@@ -27,7 +23,7 @@
       touch-action: none;
     }
     html {
-      font-size: clamp(13px, 2.8vw, 16px);
+      font-size: clamp(13px, 2.8vw, 16px) !important;
     }
     #game-canvas {
       position: fixed;
@@ -38,108 +34,108 @@
     }
   </style>
 </head>
-<body class="relative w-full h-[100dvh] overflow-hidden bg-slate-900">
+<body class="relative w-full h-full overflow-hidden bg-slate-900">
 
   <!-- 3D描画キャンバス -->
   <canvas id="game-canvas" class="fixed inset-0 w-full h-full block"></canvas>
 
   <!-- HUD（ゲーム中UI） -->
-  <div id="hud-layer" class="fixed inset-0 pointer-events-none flex flex-col justify-between p-2.5 sm:p-4 overflow-hidden">
+  <div id="hud-layer" class="fixed inset-0 pointer-events-none flex flex-col justify-between p-2.5 sm:p-4 box-border overflow-hidden">
     <!-- 上部ステータスバー -->
-    <div class="flex justify-between items-start gap-1.5 sm:gap-2 w-full">
+    <div class="flex justify-between items-start gap-1.5 w-full min-w-0">
       <!-- 回収カウント（総数 ＋ ゴミ種別カウント） -->
       <div class="bg-slate-900/75 backdrop-blur-md border border-slate-700/60 rounded-2xl px-2.5 py-2 sm:px-3.5 sm:py-2.5 shadow-lg shrink-0">
         <div class="flex items-baseline justify-between gap-2">
           <div>
-            <div class="text-[10px] sm:text-[11px] font-semibold tracking-wider text-sky-400 uppercase">RECOVERED</div>
+            <div class="text-[11px] font-bold tracking-wider text-sky-400">回収数</div>
             <div class="flex items-baseline gap-1">
               <span id="score-display" class="text-xl sm:text-2xl font-extrabold text-white tabular-nums">0</span>
-              <span id="hud-total-target" class="text-[11px] font-bold text-slate-400 tabular-nums">/ 15</span>
+              <span id="hud-total-target" class="text-xs font-bold text-slate-400 tabular-nums">/ 15</span>
             </div>
           </div>
         </div>
         <!-- ゴミ種別ごとのリアルタイム回収カウント -->
-        <div id="hud-type-counts" class="mt-1.5 pt-1.5 border-t border-slate-700/60 flex flex-col gap-0.5 text-[11px]"></div>
+        <div id="hud-type-counts" class="mt-1.5 pt-1.5 border-t border-slate-700/60 flex flex-col gap-1 text-[11px]"></div>
       </div>
 
-      <!-- 中央上部：船の耐久ゲージ（HULL INTEGRITY） -->
-      <div id="hull-hp-panel" class="bg-slate-900/75 backdrop-blur-md border border-slate-700/60 rounded-2xl px-2.5 py-2 sm:px-3.5 sm:py-2.5 shadow-lg flex-1 max-w-[180px] sm:max-w-[210px] min-w-0 transition-colors duration-150">
+      <!-- 中央上部：船の耐久ゲージ -->
+      <div id="hull-hp-panel" class="bg-slate-900/75 backdrop-blur-md border border-slate-700/60 rounded-2xl px-2.5 py-2 sm:px-3.5 sm:py-2.5 shadow-lg flex-1 min-w-0 max-w-[170px] sm:max-w-[210px] transition-colors duration-150">
         <div class="flex items-center justify-between gap-1 mb-1">
-          <span class="text-[10px] sm:text-[11px] font-extrabold tracking-wider text-emerald-400 uppercase truncate">HULL HP / 耐久</span>
-          <span id="hull-hp-text" class="text-[11px] font-extrabold text-white tabular-nums shrink-0">100%</span>
+          <span class="text-[11px] font-extrabold tracking-wider text-emerald-400 truncate">船体耐久</span>
+          <span id="hull-hp-text" class="text-xs font-extrabold text-white tabular-nums shrink-0">100%</span>
         </div>
         <div class="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700/80 p-0.5">
           <div id="hull-hp-bar" class="h-full bg-emerald-400 rounded-full transition-all duration-150" style="width: 100%;"></div>
         </div>
-        <div id="hull-damage-alert" class="hidden text-[10px] font-extrabold text-rose-400 tracking-wide mt-1 text-center animate-pulse truncate">
-          ⚠️ COLLISION DAMAGE!
+        <div id="hull-damage-alert" class="hidden text-[10px] font-extrabold text-rose-400 tracking-wide mt-1 text-center animate-pulse">
+          ⚠️ 衝突ダメージ！
         </div>
       </div>
 
       <!-- 右上カラム：制限時間タイマー ＋ デバッグボタン -->
       <div class="flex flex-col items-end gap-1.5 shrink-0">
-        <div class="bg-slate-900/75 backdrop-blur-md border border-slate-700/60 rounded-2xl px-3 py-1.5 sm:px-4 sm:py-2 shadow-lg text-center">
-          <div class="text-[10px] sm:text-[11px] font-semibold tracking-wider text-slate-400 uppercase">TIME LEFT</div>
+        <div class="bg-slate-900/75 backdrop-blur-md border border-slate-700/60 rounded-2xl px-3 py-2 sm:px-4 sm:py-2.5 shadow-lg text-center">
+          <div class="text-[11px] font-bold tracking-wider text-slate-400">残り時間</div>
           <div id="timer-display" class="text-xl sm:text-2xl font-extrabold text-white tabular-nums">60</div>
         </div>
 
-        <button id="debug-toggle-btn" class="pointer-events-auto bg-slate-900/80 hover:bg-slate-800 active:scale-95 backdrop-blur-md border border-slate-700/70 rounded-xl px-2.5 py-1.5 shadow-lg text-[11px] font-extrabold tracking-wider text-emerald-400 uppercase transition-all cursor-pointer">
-          DEBUG
+        <button id="debug-toggle-btn" class="pointer-events-auto bg-slate-900/80 hover:bg-slate-800 active:scale-95 backdrop-blur-md border border-slate-700/70 rounded-xl px-2.5 py-1.5 shadow-lg text-[11px] font-extrabold tracking-wider text-emerald-400 transition-all cursor-pointer">
+          デバッグ
         </button>
       </div>
     </div>
 
     <!-- デバッグ用コントロールパネル（初期非表示） -->
-    <div id="debug-panel" class="hidden pointer-events-auto self-end mt-1.5 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-2xl p-3 shadow-xl w-64 max-w-full space-y-3">
+    <div id="debug-panel" class="hidden pointer-events-auto self-end mt-1.5 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-2xl p-3.5 shadow-xl w-64 max-w-full space-y-3">
       <div>
         <div class="flex justify-between items-center mb-1.5">
-          <span class="text-[11px] font-extrabold tracking-wider text-emerald-400 uppercase">SHIP / SCROLL SPEED</span>
-          <span id="debug-speed-val" class="text-[11px] font-bold text-white tabular-nums">4.5</span>
+          <span class="text-xs font-extrabold tracking-wider text-emerald-400">航行速度</span>
+          <span id="debug-speed-val" class="text-xs font-bold text-white tabular-nums">4.5</span>
         </div>
         <input id="debug-speed-slider" type="range" min="1" max="30" step="0.5" value="4.5" class="w-full accent-emerald-400 cursor-pointer">
         <div class="flex justify-between text-[11px] text-slate-400 mt-1">
-          <span>SLOW (1)</span>
-          <button id="debug-speed-reset" class="text-sky-400 hover:underline cursor-pointer">DEFAULT (4.5)</button>
-          <span>FAST (30)</span>
+          <span>低速 (1)</span>
+          <button id="debug-speed-reset" class="text-sky-400 hover:underline cursor-pointer">標準 (4.5)</button>
+          <span>高速 (30)</span>
         </div>
       </div>
 
       <div class="pt-2.5 border-t border-slate-700/70">
         <div class="flex justify-between items-center mb-1.5">
-          <span class="text-[11px] font-extrabold tracking-wider text-sky-400 uppercase">TIME LEFT / 残り時間</span>
-          <span id="debug-time-val" class="text-[11px] font-bold text-white tabular-nums">60s</span>
+          <span class="text-xs font-extrabold tracking-wider text-sky-400">残り時間</span>
+          <span id="debug-time-val" class="text-xs font-bold text-white tabular-nums">60秒</span>
         </div>
         <input id="debug-time-slider" type="range" min="1" max="120" step="1" value="60" class="w-full accent-sky-400 cursor-pointer">
         <div class="grid grid-cols-4 gap-1 mt-1.5">
-          <button type="button" data-debug-time="5" class="debug-time-preset bg-slate-800 hover:bg-slate-700 text-rose-300 text-[11px] font-bold py-1 rounded-lg border border-slate-700 cursor-pointer">5s</button>
-          <button type="button" data-debug-time="15" class="debug-time-preset bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold py-1 rounded-lg border border-slate-700 cursor-pointer">15s</button>
-          <button type="button" data-debug-time="60" class="debug-time-preset bg-slate-800 hover:bg-slate-700 text-sky-300 text-[11px] font-bold py-1 rounded-lg border border-slate-700 cursor-pointer">60s</button>
-          <button type="button" data-debug-time="120" class="debug-time-preset bg-slate-800 hover:bg-slate-700 text-emerald-300 text-[11px] font-bold py-1 rounded-lg border border-slate-700 cursor-pointer">120s</button>
+          <button type="button" data-debug-time="5" class="debug-time-preset bg-slate-800 hover:bg-slate-700 text-rose-300 text-[11px] font-bold py-1 rounded-lg border border-slate-700 cursor-pointer">5秒</button>
+          <button type="button" data-debug-time="15" class="debug-time-preset bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-bold py-1 rounded-lg border border-slate-700 cursor-pointer">15秒</button>
+          <button type="button" data-debug-time="60" class="debug-time-preset bg-slate-800 hover:bg-slate-700 text-sky-300 text-[11px] font-bold py-1 rounded-lg border border-slate-700 cursor-pointer">60秒</button>
+          <button type="button" data-debug-time="120" class="debug-time-preset bg-slate-800 hover:bg-slate-700 text-emerald-300 text-[11px] font-bold py-1 rounded-lg border border-slate-700 cursor-pointer">120秒</button>
         </div>
       </div>
 
       <div class="pt-2.5 border-t border-slate-700/70 flex items-center justify-between">
         <div>
-          <div class="text-[11px] font-extrabold tracking-wider text-amber-400 uppercase">CREW / 船員</div>
+          <div class="text-xs font-extrabold tracking-wider text-amber-400">船員</div>
           <div class="text-[11px] text-slate-400">表示・転落判定・網操作</div>
         </div>
-        <button type="button" id="debug-crew-toggle" class="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 text-[11px] font-extrabold px-2.5 py-1 rounded-xl transition-all cursor-pointer">
-          OFF
+        <button type="button" id="debug-crew-toggle" class="bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/50 text-xs font-extrabold px-2.5 py-1 rounded-xl transition-all cursor-pointer">
+          無効
         </button>
       </div>
     </div>
 
     <!-- 下部操作ガイド -->
     <div class="flex justify-center w-full">
-      <div id="guide-pill" class="bg-slate-900/70 backdrop-blur-md border border-slate-700/50 text-slate-200 text-[11px] sm:text-xs font-medium px-3 py-1.5 rounded-full shadow-md text-center max-w-full truncate transition-opacity duration-300">
-        船をタッチ＆スワイプで操船 ・ 網をタッチ＆スワイプでゴミキャッチ！
+      <div id="guide-pill" class="bg-slate-900/70 backdrop-blur-md border border-slate-700/50 text-slate-200 text-[11px] sm:text-xs font-medium px-3 py-1.5 rounded-full shadow-md transition-opacity duration-300 text-center max-w-full">
+        船をスワイプで操船 ・ 網をスワイプで伸ばしてキャッチ！
       </div>
     </div>
   </div>
 
   <!-- タイトル画面・当日の仕事（ミッション）モーダル -->
-  <div id="title-modal" class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 z-30">
-    <div class="bg-slate-900/95 border border-slate-700/80 rounded-3xl p-4 sm:p-6 max-w-md w-full max-h-[92dvh] overflow-y-auto text-center shadow-2xl">
+  <div id="title-modal" class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 z-30 overflow-y-auto box-border">
+    <div class="bg-slate-900/95 border border-slate-700/80 rounded-3xl p-4 sm:p-6 max-w-md w-full max-h-[92dvh] overflow-y-auto text-center shadow-2xl my-auto">
       <h1 class="text-xl sm:text-2xl font-extrabold text-white tracking-tight mb-0.5">河川清掃船</h1>
       <p class="text-xs text-slate-400 mb-3">河川ゴミを回収しよう</p>
 
@@ -147,7 +143,7 @@
       <div class="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-3 sm:p-4 mb-4 text-left">
         <div class="flex items-center justify-between border-b border-slate-700/80 pb-2 mb-2.5">
           <span class="text-xs font-extrabold tracking-wider text-amber-400">当日の仕事</span>
-          <span id="mission-day-badge" class="text-xs font-bold px-2 py-0.5 rounded bg-slate-700 text-slate-200">DAY 1</span>
+          <span id="mission-day-badge" class="text-xs font-bold px-2 py-0.5 rounded bg-slate-700 text-slate-200">1日目</span>
         </div>
 
         <div class="flex items-center justify-between bg-slate-900/80 rounded-xl px-3 py-2 mb-2.5 border border-slate-700/50">
@@ -166,20 +162,20 @@
 
         <!-- 船員追加オプション選択（清掃コスト・評価に影響） -->
         <div class="bg-slate-900/80 rounded-xl p-2.5 mb-2.5 border border-slate-700/60">
-          <div class="flex flex-wrap items-center justify-between mb-1.5 gap-1">
+          <div class="flex items-center justify-between mb-1.5 gap-1">
             <span class="text-[11px] font-extrabold tracking-wider text-sky-400">船員配置</span>
-            <span id="mission-crew-cost-badge" class="text-xs font-bold text-emerald-400">費用 ¥0（高評価狙い）</span>
+            <span id="mission-crew-cost-badge" class="text-[11px] font-bold text-emerald-400">費用 ¥0（高評価狙い）</span>
           </div>
           <div class="grid grid-cols-3 gap-1.5" id="crew-select-group">
-            <button type="button" data-crew-count="0" class="crew-select-btn bg-sky-500/20 text-sky-300 border border-sky-400 rounded-lg py-1.5 px-1.5 text-center transition-all cursor-pointer shadow-sm">
+            <button type="button" data-crew-count="0" class="crew-select-btn bg-sky-500/20 text-sky-300 border border-sky-400 rounded-lg py-1 px-1.5 text-center transition-all cursor-pointer shadow-sm">
               <div class="text-xs font-extrabold">なし (0名)</div>
-              <div class="text-[11px] text-emerald-400 font-semibold">¥0</div>
+              <div class="text-[11px] text-emerald-400 font-semibold">費用 ¥0</div>
             </button>
-            <button type="button" data-crew-count="1" class="crew-select-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg py-1.5 px-1.5 text-center transition-all cursor-pointer">
+            <button type="button" data-crew-count="1" class="crew-select-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg py-1 px-1.5 text-center transition-all cursor-pointer">
               <div class="text-xs font-extrabold">左舷 (1名)</div>
               <div class="text-[11px] text-amber-300 font-semibold">+¥5,000</div>
             </button>
-            <button type="button" data-crew-count="2" class="crew-select-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg py-1.5 px-1.5 text-center transition-all cursor-pointer">
+            <button type="button" data-crew-count="2" class="crew-select-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg py-1 px-1.5 text-center transition-all cursor-pointer">
               <div class="text-xs font-extrabold">両舷 (2名)</div>
               <div class="text-[11px] text-rose-300 font-semibold">+¥10,000</div>
             </button>
@@ -190,9 +186,9 @@
         </div>
 
         <ul class="text-[11px] text-slate-300 space-y-1 leading-snug">
-          <li>・<span class="text-sky-300 font-bold">船を左右スワイプ（逆方向）</span>でコンベア回収</li>
-          <li>・<span class="text-amber-300 font-bold">網を外側へスワイプ</span>で横のゴミ回収（船員配置時）</li>
-          <li>・<span class="text-rose-400 font-bold">接触（耐久0）</span>や急操作での<span class="text-rose-400 font-bold">転覆</span>で終了</li>
+          <li>・<span class="text-sky-300 font-bold">船を左右スワイプ（逆方向操作）</span>でコンベア回収</li>
+          <li>・船員配置時は<span class="text-amber-300 font-bold">網を外側スワイプ</span>で横のゴミを回収</li>
+          <li>・<span class="text-rose-400 font-bold">川岸・橋脚衝突（耐久0）</span>や急操作の<span class="text-rose-400 font-bold">転覆</span>で終了</li>
         </ul>
       </div>
 
@@ -203,48 +199,48 @@
   </div>
 
   <!-- タイムアップ・リザルトモーダル -->
-  <div id="result-modal" class="hidden fixed inset-0 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-3 z-30">
-    <div class="bg-slate-900/95 border border-slate-700/80 rounded-3xl p-4 sm:p-6 max-w-md w-full max-h-[92dvh] overflow-y-auto text-center shadow-2xl">
-      <div id="result-badge" class="inline-block px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[11px] font-bold tracking-widest uppercase mb-1">
-        TIME UP!
+  <div id="result-modal" class="hidden fixed inset-0 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-3 z-30 overflow-y-auto box-border">
+    <div class="bg-slate-900/95 border border-slate-700/80 rounded-3xl p-4 sm:p-6 max-w-md w-full max-h-[92dvh] overflow-y-auto text-center shadow-2xl my-auto">
+      <div id="result-badge" class="inline-block px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[11px] font-bold tracking-widest mb-1.5">
+        終了
       </div>
       <h2 id="result-title" class="text-xl sm:text-2xl font-extrabold text-white tracking-tight mb-0.5">業務終了！</h2>
-      <p id="result-comment" class="text-xs sm:text-sm font-semibold text-emerald-400 mb-3">GREAT CLEANUP!</p>
+      <p id="result-comment" class="text-xs font-semibold text-emerald-400 mb-3">お疲れさまでした！</p>
 
       <!-- ミッション目標 ＆ 達成評価ランク（A / B / C） -->
       <div class="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-3 sm:p-4 mb-3 grid grid-cols-2 gap-2.5 items-center">
         <div class="text-left border-r border-slate-700/70 pr-2.5">
-          <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">MISSION TARGET</div>
+          <div class="text-[11px] font-semibold text-slate-400 tracking-wider mb-0.5">目標回収数</div>
           <div class="text-xl sm:text-2xl font-extrabold text-white tabular-nums">
             <span id="result-mission-target">15</span>
-            <span class="text-[11px] font-bold text-slate-400 ml-0.5">ITEMS</span>
+            <span class="text-xs font-bold text-slate-400 ml-0.5">個</span>
           </div>
-          <div id="result-progress-detail" class="text-[11px] text-slate-400 mt-0.5">達成率 0%</div>
-          <div id="result-cost-detail" class="text-[11px] font-bold text-amber-300 mt-0.5">船員費用: ¥0 (0名)</div>
+          <div id="result-progress-detail" class="text-xs text-slate-400 mt-0.5">達成率 0%</div>
+          <div id="result-cost-detail" class="text-xs font-bold text-amber-300 mt-0.5">船員費用: ¥0 (0名)</div>
         </div>
         <div class="text-center pl-1">
-          <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">EVALUATION</div>
+          <div class="text-[11px] font-semibold text-slate-400 tracking-wider mb-0.5">総合評価</div>
           <div id="result-rank" class="text-4xl sm:text-5xl font-black text-emerald-400 leading-none tracking-tight">A</div>
-          <div id="result-rank-label" class="text-[11px] font-bold text-emerald-300 mt-1">EXCELLENT</div>
+          <div id="result-rank-label" class="text-xs font-bold text-emerald-300 mt-1">優秀</div>
         </div>
       </div>
 
       <!-- 回収したごみの種類と内訳（種別ノルマ対比） -->
       <div class="bg-slate-800/60 border border-slate-700/60 rounded-2xl p-3 mb-4 text-left">
-        <div class="flex items-center justify-between mb-2 px-0.5">
-          <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">TYPE QUOTA &amp; RESULT / 種別ノルマ結果</span>
-          <span id="result-quota-summary" class="text-[11px] font-bold text-sky-400">0 / 2 達成</span>
+        <div class="flex items-center justify-between mb-2 px-1">
+          <span class="text-xs font-bold text-slate-400 tracking-wider">種別ノルマ結果</span>
+          <span id="result-quota-summary" class="text-xs font-bold text-sky-400">0 / 2 達成</span>
         </div>
         <div id="result-breakdown" class="grid grid-cols-2 gap-1.5 text-xs"></div>
       </div>
 
       <button id="retry-btn" class="w-full py-3 px-5 rounded-2xl bg-sky-500 hover:bg-sky-400 active:scale-95 text-slate-950 font-extrabold text-sm sm:text-base tracking-wide shadow-lg shadow-sky-500/25 transition-all cursor-pointer">
-        RETRY
+        もう一度業務開始
       </button>
     </div>
   </div>
 
-  <!-- モジュールスクリプト読み込み（GitHub Pages 公開リンク参照） -->
+  <!-- モジュールスクリプト読み込み（依存関係順） -->
   <script src="https://naniwacg.github.io/river-sweep-boat-game/js/config.js"></script>
   <script src="https://naniwacg.github.io/river-sweep-boat-game/js/world.js"></script>
   <script src="https://naniwacg.github.io/river-sweep-boat-game/js/ship.js"></script>
