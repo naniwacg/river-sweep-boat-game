@@ -140,16 +140,13 @@
   <!-- タイトル画面・当日の仕事（ミッション）モーダル -->
   <div id="title-modal" class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 z-30">
     <div class="bg-slate-900/95 border border-slate-700/80 rounded-3xl p-4 sm:p-6 max-w-md w-full max-h-[92dvh] overflow-y-auto text-center shadow-2xl">
-      <div class="inline-block px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-400 text-[11px] font-extrabold tracking-widest uppercase mb-1">
-        RIVER CLEANUP CREW
-      </div>
       <h1 class="text-xl sm:text-2xl font-extrabold text-white tracking-tight mb-0.5">河川清掃船</h1>
       <p class="text-xs text-slate-400 mb-3">河川ゴミを回収しよう</p>
 
       <!-- 当日の仕事 -->
       <div class="bg-slate-800/90 border border-slate-700/80 rounded-2xl p-3 sm:p-4 mb-4 text-left">
         <div class="flex items-center justify-between border-b border-slate-700/80 pb-2 mb-2.5">
-          <span class="text-[11px] font-extrabold tracking-wider text-amber-400 uppercase">TODAY'S MISSION / 当日の仕事</span>
+          <span class="text-xs font-extrabold tracking-wider text-amber-400">当日の仕事</span>
           <span id="mission-day-badge" class="text-xs font-bold px-2 py-0.5 rounded bg-slate-700 text-slate-200">DAY 1</span>
         </div>
 
@@ -163,20 +160,20 @@
 
         <!-- 種別ノルマ -->
         <div class="bg-slate-900/60 rounded-xl p-2.5 mb-2.5 border border-slate-700/40">
-          <div class="text-[11px] font-bold tracking-wider text-amber-300/90 uppercase mb-1.5">TYPE QUOTA / 種別回収ノルマ</div>
+          <div class="text-[11px] font-bold tracking-wider text-amber-300/90 mb-1.5">種別回収ノルマ</div>
           <div id="mission-type-quotas" class="grid grid-cols-2 gap-1.5 text-xs"></div>
         </div>
 
         <!-- 船員追加オプション選択（清掃コスト・評価に影響） -->
         <div class="bg-slate-900/80 rounded-xl p-2.5 mb-2.5 border border-slate-700/60">
           <div class="flex flex-wrap items-center justify-between mb-1.5 gap-1">
-            <span class="text-[11px] font-extrabold tracking-wider text-sky-400 uppercase">CREW DEPLOYMENT / 船員配置</span>
-            <span id="mission-crew-cost-badge" class="text-xs font-bold text-emerald-400">船員費用: ¥0（低コスト・高評価）</span>
+            <span class="text-[11px] font-extrabold tracking-wider text-sky-400">船員配置</span>
+            <span id="mission-crew-cost-badge" class="text-xs font-bold text-emerald-400">費用 ¥0（高評価狙い）</span>
           </div>
           <div class="grid grid-cols-3 gap-1.5" id="crew-select-group">
             <button type="button" data-crew-count="0" class="crew-select-btn bg-sky-500/20 text-sky-300 border border-sky-400 rounded-lg py-1.5 px-1.5 text-center transition-all cursor-pointer shadow-sm">
               <div class="text-xs font-extrabold">なし (0名)</div>
-              <div class="text-[11px] text-emerald-400 font-semibold">費用 ¥0</div>
+              <div class="text-[11px] text-emerald-400 font-semibold">¥0</div>
             </button>
             <button type="button" data-crew-count="1" class="crew-select-btn bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg py-1.5 px-1.5 text-center transition-all cursor-pointer">
               <div class="text-xs font-extrabold">左舷 (1名)</div>
@@ -188,19 +185,19 @@
             </button>
           </div>
           <div id="mission-crew-note" class="text-[11px] text-slate-400 mt-1.5 leading-snug">
-            船首コンベアのみで清掃します。船員費用ゼロのため高評価（Aランク）を狙えます！
+            コンベアのみで清掃（低コストでA評価狙い）
           </div>
         </div>
 
         <ul class="text-[11px] text-slate-300 space-y-1 leading-snug">
-          <li>・<span class="text-sky-300 font-bold">船をタッチ＆左右スワイプ（逆方向操作）</span>で船首コンベアをゴミに合わせる</li>
-          <li>・左右に流れたゴミは<span class="text-amber-300 font-bold">網をタッチ＆外側へスワイプ</span>でキャッチ（船員配置時）</li>
-          <li>・<span class="text-rose-400 font-bold">川岸・橋脚への接触（耐久0）</span>や急操作での<span class="text-rose-400 font-bold">転覆</span>でゲームオーバー！</li>
+          <li>・<span class="text-sky-300 font-bold">船を左右スワイプ（逆方向）</span>でコンベア回収</li>
+          <li>・<span class="text-amber-300 font-bold">網を外側へスワイプ</span>で横のゴミ回収（船員配置時）</li>
+          <li>・<span class="text-rose-400 font-bold">接触（耐久0）</span>や急操作での<span class="text-rose-400 font-bold">転覆</span>で終了</li>
         </ul>
       </div>
 
       <button id="start-btn" class="w-full py-3 px-5 rounded-2xl bg-sky-500 hover:bg-sky-400 active:scale-95 text-slate-950 font-extrabold text-sm sm:text-base tracking-wide shadow-lg shadow-sky-500/25 transition-all cursor-pointer">
-        業務開始（START）
+        業務開始
       </button>
     </div>
   </div>
