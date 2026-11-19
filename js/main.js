@@ -4,13 +4,14 @@
 window.GameApp = window.GameApp || {};
 
 (function (app) {
-  const { state, CONSTANTS, world, ship } = app;
+  const { state, CONSTANTS, world, ship, trash } = app;
   const {
     scene,
     camera,
     renderer,
+    bridges,
     getCurvedY,
-    getRiverCenterX,
+    getBankLimitAtZ,
     updateWorld
   } = world;
 
@@ -19,7 +20,7 @@ window.GameApp = window.GameApp || {};
     shipVisual,
     hullMat,
     orangeMat,
-    shipHitBox,
+    boxGroup,
     crewMembers,
     netAimLine,
     netTargetMarker,
@@ -30,6 +31,12 @@ window.GameApp = window.GameApp || {};
     updateCrewStability,
     resetShipAndCrew
   } = ship;
+
+  const {
+    populateInitialTrash,
+    catchTrashWithCrewNet,
+    updateTrash
+  } = trash;
 
   // 操船物理ステート（ワンテンポ遅れる慣性追従 ＋ 高速スワイプ傾き増幅）
   const shipPhysics = {
@@ -71,17 +78,12 @@ window.GameApp = window.GameApp || {};
       updatePointerNdc(clientX, clientY);
       raycaster.setFromCamera(pointerNdc, camera);
 
-      const netTargets = [];
-      crewMembers.forEach((crew) => {
+      for (const crew of crewMembers) {
         if (crew.isDeployed && crew.netHitArea) {
-          netTargets.push({ crew, obj: crew.netHitArea });
-        }
-      });
-
-      for (const item of netTargets) {
-        const hits = raycaster.intersectObject(item.obj, false);
-        if (hits.length > 0) {
-          return { mode: 'net', crew: item.crew };
+          const hits = raycaster.intersectObject(crew.netHitArea, false);
+          if (hits.length > 0) {
+            return { mode: 'net', crew };
+          }
         }
       }
     }
@@ -155,8 +157,8 @@ window.GameApp = window.GameApp || {};
 
       if (pointerState.mode === 'net' && pointerState.activeCrew) {
         pointerState.activeCrew.swingTimer = 0.45;
-        if (app.trash && typeof app.trash.tryCatchWithNet === 'function') {
-          app.trash.tryCatchWithNet(pointerState.activeCrew);
+        if (typeof catchTrashWithCrewNet === 'function') {
+          catchTrashWithCrewNet(pointerState.activeCrew);
         }
       }
 
@@ -170,6 +172,20 @@ window.GameApp = window.GameApp || {};
 
     canvas.addEventListener('pointerup', endPointer);
     canvas.addEventListener('pointercancel', endPointer);
+  }
+
+  // ゴミ回収ボックス収納時のコールバック
+  function handleTrashCollected(typeId) {
+    if (!state.isPlaying || state.isGameOver) return;
+    state.score += 1;
+    if (state.collectedByType[typeId] !== undefined) {
+      state.collectedByType[typeId] += 1;
+    }
+    boxGroup.scale.set(1.26, 1.26, 1.26);
+
+    if (app.ui && typeof app.ui.updateScoreUI === 'function') {
+      app.ui.updateScoreUI();
+    }
   }
 
   // 船体接触ダメージ適用
@@ -239,8 +255,8 @@ window.GameApp = window.GameApp || {};
 
     resetShipAndCrew();
 
-    if (app.trash && typeof app.trash.resetTrash === 'function') {
-      app.trash.resetTrash();
+    if (typeof populateInitialTrash === 'function') {
+      populateInitialTrash();
     }
 
     if (app.ui) {
@@ -277,11 +293,14 @@ window.GameApp = window.GameApp || {};
     // X座標更新
     shipPhysics.x += shipPhysics.vx * dt;
 
-    // 川のカーブ中心と護岸制限（BANK_LIMIT_X）
-    const riverCenter = typeof getRiverCenterX === 'function' ? getRiverCenterX(0) : 0;
-    const halfBank = (CONSTANTS.BANK_LIMIT_X || 6.2) - 1.35;
-    const minX = riverCenter - halfBank;
-    const maxX = riverCenter + halfBank;
+    // 護岸との接触判定（world.getBankLimitAtZ に準拠）
+    const shipHalfBeam = 1.45;
+    const minX = typeof getBankLimitAtZ === 'function'
+      ? getBankLimitAtZ(-1, 0) - shipHalfBeam
+      : -(CONSTANTS.BANK_LIMIT_X || 6.2) + shipHalfBeam;
+    const maxX = typeof getBankLimitAtZ === 'function'
+      ? getBankLimitAtZ(1, 0) + shipHalfBeam
+      : (CONSTANTS.BANK_LIMIT_X || 6.2) - shipHalfBeam;
 
     if (shipPhysics.x < minX) {
       shipPhysics.x = minX;
@@ -301,27 +320,24 @@ window.GameApp = window.GameApp || {};
       }
     }
 
-    // 水中橋脚との接触判定（world.js 公開の橋リストを参照）
-    const bridges = world.bridges || world.activeBridges || [];
-    for (const bridge of bridges) {
-      const piers = bridge.piers || [];
-      const bridgeZ = bridge.group ? bridge.group.position.z : (bridge.z || 0);
-      for (const pier of piers) {
-        const pierZ = bridgeZ + (pier.z || 0);
-        const pierX = pier.x || 0;
-        const dz = Math.abs(pierZ - shipParent.position.z);
-        const dx = shipPhysics.x - pierX;
-        const hitX = 1.35 + (pier.halfW || 0.55);
-        const hitZ = 2.6 + (pier.halfD || 0.7);
-
-        if (dz < hitZ && Math.abs(dx) < hitX) {
-          const pushDir = dx >= 0 ? 1 : -1;
-          shipPhysics.x = pierX + pushDir * (hitX + 0.08);
-          shipPhysics.vx = pushDir * Math.max(2.4, Math.abs(shipPhysics.vx) * 0.55);
-          shipPhysics.targetVx = 0;
-          if (state.pierDamageCooldown <= 0) {
-            state.pierDamageCooldown = 0.65;
-            applyShipDamage(25);
+    // 水中橋脚との接触判定（world.bridges 準拠）
+    if (Array.isArray(bridges)) {
+      for (const b of bridges) {
+        const dzPier = shipParent.position.z - b.group.position.z;
+        if (Math.abs(dzPier) < 3.1 && Array.isArray(b.piers)) {
+          for (const pier of b.piers) {
+            const dxPier = shipPhysics.x - pier.x;
+            const hitX = shipHalfBeam + (pier.radius || 0.65);
+            if (Math.abs(dxPier) < hitX) {
+              const pushDir = dxPier >= 0 ? 1 : -1;
+              shipPhysics.x = pier.x + pushDir * (hitX + 0.08);
+              shipPhysics.vx = pushDir * Math.max(2.4, Math.abs(shipPhysics.vx) * 0.55);
+              shipPhysics.targetVx = 0;
+              if (state.pierDamageCooldown <= 0) {
+                state.pierDamageCooldown = 0.65;
+                applyShipDamage(25);
+              }
+            }
           }
         }
       }
@@ -377,7 +393,6 @@ window.GameApp = window.GameApp || {};
     const elapsed = now * 0.001;
     lastTime = now;
 
-    // クールダウン・ダメージフラッシュ減衰
     if (state.bankDamageCooldown > 0) state.bankDamageCooldown = Math.max(0, state.bankDamageCooldown - dt);
     if (state.pierDamageCooldown > 0) state.pierDamageCooldown = Math.max(0, state.pierDamageCooldown - dt);
     if (state.damageFlashTimer > 0) {
@@ -415,14 +430,17 @@ window.GameApp = window.GameApp || {};
 
       updateShipPhysics(dt, elapsed);
 
-      if (!state.shipCapsizing && app.trash && typeof app.trash.updateTrash === 'function') {
-        app.trash.updateTrash(dt, currentScrollSpeed);
+      if (!state.shipCapsizing && typeof updateTrash === 'function') {
+        updateTrash(dt, elapsed, handleTrashCollected);
       }
     } else {
       // タイトル・リザルト画面でのアイドル揺れ
       const baseWaveY = typeof getCurvedY === 'function' ? getCurvedY(0) : 0;
       shipParent.position.set(0, baseWaveY + Math.sin(elapsed * 2.4) * 0.06, 0);
       shipVisual.rotation.z = Math.sin(elapsed * 1.8) * 0.04;
+      if (typeof updateTrash === 'function') {
+        updateTrash(dt, elapsed, null);
+      }
     }
 
     renderer.render(scene, camera);
