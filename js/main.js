@@ -1,437 +1,386 @@
-// ==========================================
-// 操船・入力処理・ゲーム進行制御・メインループ
-// ==========================================
-window.GameApp = window.GameApp || {};
+// 入力処理・衝突判定・ゲーム進行・メインアニメーションループ
 
-(function (app) {
-  const { state, CONSTANTS, world, ship, trash, ui } = app;
-  const { canvas, scene, camera, renderer, bridges, getBankLimitAtZ, updateWorld, resetBridges } = world;
-  const {
-    shipParent,
-    shipVisual,
-    hullMat,
-    orangeMat,
-    pontoonL,
-    pontoonR,
-    deck,
-    boxBase,
-    boxGroup,
-    shipHitBox,
-    crewMembers,
-    netAimLine,
-    netTargetMarker,
-    spawnTiltSpray,
-    updateTiltParticles,
-    updateCrewNetAim,
-    updateCapsizeAnimation,
-    updateCrewStability,
-    resetShipAndCrew
-  } = ship;
+// ポインター座標から船体または左右タモ網の操作対象を判定
+function detectControlTarget(clientX, clientY) {
+  if (!state.crewEnabled) return 'ship';
 
-  // 操船物理パラメータ
-  const shipPhysics = {
-    vx: 0,
-    moveForce: 75,
-    maxSpeed: 13,
-    dragSensitivity: 1.4,
-    accumulatedInputX: 0,
-    swipeVelocityInput: 0
-  };
-
-  let isPointerDown = false;
-  let isShipDragging = false;
-  let lastPointerX = 0;
-  let activeNetCrew = null;
+  const rect = renderer.domElement.getBoundingClientRect();
+  const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+  const ndcY = -((clientY - rect.top) / rect.height) * 2 + 1;
 
   const raycaster = new THREE.Raycaster();
-  const pointerNDC = new THREE.Vector2();
-  const waterPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  raycaster.setFromCamera(new THREE.Vector2(ndcX, ndcY), camera);
 
-  function setPointerNDC(clientX, clientY) {
-    const rect = canvas.getBoundingClientRect();
-    pointerNDC.x = ((clientX - rect.left) / rect.width) * 2 - 1;
-    pointerNDC.y = -((clientY - rect.top) / rect.height) * 2 + 1;
-    raycaster.setFromCamera(pointerNDC, camera);
+  const targets = [];
+  if (state.selectedCrewCount >= 1 && leftNetGroup.visible) {
+    targets.push({ name: 'leftNet', obj: leftNetGroup });
+  }
+  if (state.selectedCrewCount >= 2 && rightNetGroup.visible) {
+    targets.push({ name: 'rightNet', obj: rightNetGroup });
   }
 
-  function checkShipHit(clientX, clientY) {
-    setPointerNDC(clientX, clientY);
-    const hits = raycaster.intersectObjects([shipHitBox, pontoonL, pontoonR, deck, boxBase], false);
-    return hits.length > 0;
+  for (const t of targets) {
+    const hits = raycaster.intersectObject(t.obj, true);
+    if (hits.length > 0) return t.name;
   }
 
-  function findHitNetCrew(clientX, clientY) {
-    if (!state.crewEnabled) return null;
-    setPointerNDC(clientX, clientY);
+  // スクリーン投影距離による補助判定（モバイル指タッチの拾いやすさ向上）
+  const shipScreen = shipGroup.position.clone().project(camera);
+  const shipPxX = (shipScreen.x * 0.5 + 0.5) * rect.width + rect.left;
+  const shipPxY = (-shipScreen.y * 0.5 + 0.5) * rect.height + rect.top;
 
-    let closestCrew = null;
-    let minDist = Infinity;
-    for (const crew of crewMembers) {
-      if (!crew.isDeployed) continue;
-      const hits = raycaster.intersectObjects([crew.netHitArea, crew.netRing, crew.poleMesh], false);
-      if (hits.length > 0 && hits[0].distance < minDist) {
-        minDist = hits[0].distance;
-        closestCrew = crew;
-      }
-    }
-    return closestCrew;
+  const dx = clientX - shipPxX;
+  const dy = clientY - shipPxY;
+
+  if (Math.abs(dy) < 95) {
+    if (dx < -38 && dx > -160 && state.selectedCrewCount >= 1) return 'leftNet';
+    if (dx > 38 && dx < 160 && state.selectedCrewCount >= 2) return 'rightNet';
   }
 
-  function handleCrewNetAim(crew, clientX, clientY) {
-    setPointerNDC(clientX, clientY);
-    const intersectPt = new THREE.Vector3();
-    if (raycaster.ray.intersectPlane(waterPlane, intersectPt)) {
-      updateCrewNetAim(crew, intersectPt);
-    }
-  }
+  return 'ship';
+}
 
-  function executeCrewNetCatch(crew) {
-    netAimLine.visible = false;
-    netTargetMarker.visible = false;
+// ポインター／スワイプイベント初期化
+function initInputEvents() {
+  const canvas = renderer.domElement;
 
-    if (!crew || !state.crewEnabled || !state.isPlaying || state.crewFalling) return;
-    trash.catchTrashWithCrewNet(crew);
-    crew.swingTimer = 0.45;
-  }
-
-  // ポインター操作イベント
   canvas.addEventListener('pointerdown', (e) => {
-    isPointerDown = true;
-    lastPointerX = e.clientX;
-    activeNetCrew = null;
-    isShipDragging = false;
+    if (state.phase !== 'playing') return;
+    e.preventDefault();
+    canvas.setPointerCapture(e.pointerId);
 
-    if (!state.isPlaying || state.crewFalling) return;
+    const mode = detectControlTarget(e.clientX, e.clientY);
+    state.pointer = {
+      active: true,
+      id: e.pointerId,
+      mode,
+      startX: e.clientX,
+      startY: e.clientY,
+      lastX: e.clientX,
+      lastY: e.clientY,
+      lastTime: performance.now()
+    };
+  }, { passive: false });
 
-    const hitCrew = findHitNetCrew(e.clientX, e.clientY);
-    if (hitCrew) {
-      activeNetCrew = hitCrew;
-      handleCrewNetAim(activeNetCrew, e.clientX, e.clientY);
-    } else if (checkShipHit(e.clientX, e.clientY)) {
-      isShipDragging = true;
+  canvas.addEventListener('pointermove', (e) => {
+    if (!state.pointer.active || e.pointerId !== state.pointer.id) return;
+    if (state.phase !== 'playing') return;
+    e.preventDefault();
+
+    const now = performance.now();
+    const dtMs = Math.max(8, now - state.pointer.lastTime);
+    const dx = e.clientX - state.pointer.lastX;
+    const totalDx = e.clientX - state.pointer.startX;
+
+    if (state.pointer.mode === 'ship') {
+      // 逆方向スワイプ操船（画面左へスワイプ＝船首を右へ振る感覚、または直感的な操舵量入力）
+      const normDx = (-dx / Math.max(280, window.innerWidth)) * 18.0;
+      const swipeSpeed = normDx / (dtMs / 1000);
+
+      state.shipPhysics.targetVx += normDx * 2.4;
+      state.shipPhysics.targetVx = Math.max(-14, Math.min(14, state.shipPhysics.targetVx));
+
+      // 高速スワイプ時の傾きブースト入力を蓄積
+      state.shipPhysics.tiltBoostInput += swipeSpeed * 0.018;
+      state.shipPhysics.tiltBoostInput = Math.max(-0.85, Math.min(0.85, state.shipPhysics.tiltBoostInput));
+    } else if (state.pointer.mode === 'leftNet') {
+      // 左舷タモ網：外側（画面左方向）へのスワイプで網を伸ばす
+      const extend = Math.max(0, Math.min(1, -totalDx / 110));
+      state.nets.left.targetExtend = extend;
+    } else if (state.pointer.mode === 'rightNet') {
+      // 右舷タモ網：外側（画面右方向）へのスワイプで網を伸ばす
+      const extend = Math.max(0, Math.min(1, totalDx / 110));
+      state.nets.right.targetExtend = extend;
     }
+
+    state.pointer.lastX = e.clientX;
+    state.pointer.lastY = e.clientY;
+    state.pointer.lastTime = now;
+  }, { passive: false });
+
+  const releasePointer = (e) => {
+    if (!state.pointer.active || e.pointerId !== state.pointer.id) return;
+    if (state.pointer.mode === 'leftNet') {
+      state.nets.left.targetExtend = 0;
+    } else if (state.pointer.mode === 'rightNet') {
+      state.nets.right.targetExtend = 0;
+    }
+    state.pointer.active = false;
+    state.pointer.id = null;
+    state.pointer.mode = null;
+  };
+
+  canvas.addEventListener('pointerup', releasePointer);
+  canvas.addEventListener('pointercancel', releasePointer);
+}
+
+// 船体ダメージ適用＆HUDフラッシュ演出
+function applyHullDamage(amount) {
+  if (state.phase !== 'playing') return;
+  if (state.damageCooldown > 0) return;
+
+  state.hullHp = Math.max(0, state.hullHp - amount);
+  state.damageCooldown = 0.55;
+  updateHullHpUI();
+
+  if (dom.hullHpPanel) {
+    dom.hullHpPanel.classList.add('border-rose-500', 'bg-rose-950/80');
+  }
+  if (dom.hullDamageAlert) {
+    dom.hullDamageAlert.classList.remove('hidden');
+  }
+
+  setTimeout(() => {
+    if (dom.hullHpPanel) {
+      dom.hullHpPanel.classList.remove('border-rose-500', 'bg-rose-950/80');
+    }
+    if (dom.hullDamageAlert) {
+      dom.hullDamageAlert.classList.add('hidden');
+    }
+  }, 450);
+
+  if (state.hullHp <= 0) {
+    endGame('hull_destroyed');
+  }
+}
+
+// ゲーム開始・リセット処理
+function startGame() {
+  state.phase = 'playing';
+  state.score = 0;
+  state.timeLeft = GAME_DURATION;
+  state.hullHp = state.maxHullHp;
+  state.damageCooldown = 0;
+  state.worldDistance = 0;
+
+  TRASH_TYPES.forEach(t => {
+    state.collectedByType[t.id] = 0;
   });
 
-  window.addEventListener('pointermove', (e) => {
-    if (!isPointerDown || !state.isPlaying) return;
+  // 船体位置・物理状態リセット
+  shipGroup.position.set(0, 0, SHIP_Z);
+  shipGroup.rotation.set(0, 0, 0);
+  state.shipPhysics = {
+    x: 0,
+    vx: 0,
+    targetVx: 0,
+    delayedVelInput: 0,
+    tiltBoostInput: 0,
+    delayedTiltBoost: 0,
+    currentRollZ: 0
+  };
 
-    if (activeNetCrew) {
-      handleCrewNetAim(activeNetCrew, e.clientX, e.clientY);
-      return;
-    }
+  // タモ網状態リセット
+  state.nets.left.extend = 0;
+  state.nets.left.targetExtend = 0;
+  state.nets.right.extend = 0;
+  state.nets.right.targetExtend = 0;
 
-    if (!isShipDragging) return;
+  // 既存ゴミオブジェクトのクリア
+  if (typeof clearAllTrash === 'function') {
+    clearAllTrash();
+  }
 
-    const deltaX = e.clientX - lastPointerX;
-    lastPointerX = e.clientX;
+  // UI更新
+  dom.score.textContent = '0';
+  dom.timer.textContent = Math.ceil(state.timeLeft);
+  dom.timer.classList.remove('text-rose-400');
+  if (dom.debugTimeSlider) dom.debugTimeSlider.value = Math.ceil(state.timeLeft).toString();
+  if (dom.debugTimeVal) dom.debugTimeVal.textContent = `${Math.ceil(state.timeLeft)}秒`;
 
-    if (Math.abs(deltaX) > 0.2) {
-      const normalized = (-deltaX / Math.max(window.innerWidth, 320)) * 28 * shipPhysics.dragSensitivity;
-      const clamped = THREE.MathUtils.clamp(normalized, -1, 1);
-      if (Math.abs(clamped) > Math.abs(shipPhysics.accumulatedInputX)) {
-        shipPhysics.accumulatedInputX = clamped;
+  updateHullHpUI();
+  updateHudTypeCounts();
+  syncCrewEnabledUI();
+
+  dom.titleModal.classList.add('hidden');
+  dom.resultModal.classList.add('hidden');
+}
+
+// 船体物理・水しぶき・護岸および橋脚との衝突更新
+function updateShipAndCollisions(dt) {
+  const phys = state.shipPhysics;
+
+  // 入力減衰
+  phys.targetVx *= Math.pow(0.04, dt);
+  phys.tiltBoostInput *= Math.pow(0.03, dt);
+
+  // ワンテンポ遅れる2段階慣性追従
+  const lagFactor = 1 - Math.exp(-7.5 * dt);
+  phys.delayedVelInput += (phys.targetVx - phys.delayedVelInput) * lagFactor;
+  phys.vx += (phys.delayedVelInput - phys.vx) * (1 - Math.exp(-9.0 * dt));
+
+  phys.delayedTiltBoost += (phys.tiltBoostInput - phys.delayedTiltBoost) * (1 - Math.exp(-8.0 * dt));
+
+  // 横移動更新
+  phys.x += phys.vx * dt;
+
+  // 川のカーブ中心と有効川幅の取得
+  const riverCenter = typeof getRiverCenterX === 'function' ? getRiverCenterX(state.worldDistance + SHIP_Z) : 0;
+  const halfRiverWidth = typeof getRiverHalfWidth === 'function' ? getRiverHalfWidth(state.worldDistance + SHIP_Z) : 6.2;
+  const shipHalfBeam = 1.15;
+
+  const minX = riverCenter - halfRiverWidth + shipHalfBeam;
+  const maxX = riverCenter + halfRiverWidth - shipHalfBeam;
+
+  // 左右護岸との接触判定
+  if (phys.x < minX) {
+    phys.x = minX;
+    phys.vx = Math.abs(phys.vx) * 0.45 + 1.5;
+    phys.targetVx = 0;
+    applyHullDamage(18);
+  } else if (phys.x > maxX) {
+    phys.x = maxX;
+    phys.vx = -Math.abs(phys.vx) * 0.45 - 1.5;
+    phys.targetVx = 0;
+    applyHullDamage(18);
+  }
+
+  // 水中橋脚との接触判定（world.js の橋リストを参照）
+  if (typeof activeBridges !== 'undefined' && Array.isArray(activeBridges)) {
+    for (const bridge of activeBridges) {
+      if (!bridge.piers) continue;
+      for (const pier of bridge.piers) {
+        const worldZ = bridge.group.position.z + pier.z;
+        const worldX = pier.x;
+        const dz = Math.abs(worldZ - SHIP_Z);
+        const dx = phys.x - worldX;
+        const hitX = shipHalfBeam + (pier.halfW || 0.55);
+        const hitZ = 2.1 + (pier.halfD || 0.7);
+
+        if (dz < hitZ && Math.abs(dx) < hitX) {
+          const pushDir = dx >= 0 ? 1 : -1;
+          phys.x = worldX + pushDir * (hitX + 0.08);
+          phys.vx = pushDir * Math.max(2.5, Math.abs(phys.vx) * 0.6);
+          phys.targetVx = 0;
+          applyHullDamage(25);
+        }
       }
-      const swipeSpeedFactor = THREE.MathUtils.clamp(
-        (-deltaX / Math.max(window.innerWidth, 320)) * 45 * shipPhysics.dragSensitivity,
-        -1.6,
-        1.6
-      );
-      if (Math.abs(swipeSpeedFactor) > Math.abs(shipPhysics.swipeVelocityInput)) {
-        shipPhysics.swipeVelocityInput = swipeSpeedFactor;
-      }
-    }
-  });
-
-  window.addEventListener('pointerup', () => {
-    if (activeNetCrew) {
-      executeCrewNetCatch(activeNetCrew);
-      activeNetCrew = null;
-    }
-    isShipDragging = false;
-    isPointerDown = false;
-  });
-
-  // ダメージ・ゲームオーバー処理
-  function applyShipDamage(amount, contactSideSign) {
-    if (!state.isPlaying || state.isGameOver || state.shipCapsizing) return;
-    state.shipHp = Math.max(0, state.shipHp - amount);
-    state.damageFlashTimer = 0.22;
-    ui.updateHullHpUI(true);
-    spawnTiltSpray(contactSideSign, 0.85);
-
-    if (state.shipHp <= 0) {
-      triggerGameOver('HULL_BROKEN');
     }
   }
 
-  function triggerGameOver(reason) {
-    if (state.isGameOver) return;
-    state.isPlaying = false;
-    state.isGameOver = true;
-    ui.showResultModal(reason);
-  }
-
-  function resetGame(isNextMission = false) {
-    if (isNextMission) {
-      state.dayCount++;
-      ui.generateDailyMission();
-    }
-    state.isPlaying = true;
-    state.isGameOver = false;
-    state.shipCapsizing = false;
-    state.capsizeDir = 1;
-    state.capsizeProgress = 0;
-    state.shipHp = state.shipMaxHp;
-    state.bankDamageCooldown = 0;
-    state.pierDamageCooldown = 0;
-    state.damageFlashTimer = 0;
-    ui.updateHullHpUI(false);
-
-    state.crewFalling = false;
-    state.fallingCrew = null;
-    state.crewFallVelocity.set(0, 0, 0);
-    state.score = 0;
-    state.collectedByType = { bottle: 0, foam: 0, can: 0, plastic: 0 };
-    state.timeLeft = CONSTANTS.GAME_DURATION;
-    ui.updateHudRecoveryCounts();
-
-    ui.dom.timerEl.textContent = String(CONSTANTS.GAME_DURATION);
-    ui.dom.timerEl.classList.remove('text-rose-500');
-    if (ui.dom.debugTimeSlider) ui.dom.debugTimeSlider.value = String(CONSTANTS.GAME_DURATION);
-    if (ui.dom.debugTimeVal) ui.dom.debugTimeVal.textContent = `${CONSTANTS.GAME_DURATION}s`;
-    ui.dom.titleModal.classList.add('hidden');
-    ui.dom.resultModal.classList.add('hidden');
-
-    resetShipAndCrew();
-    ui.applyCrewDeployment(state.crewCount);
-    activeNetCrew = null;
-    isShipDragging = false;
-
-    shipPhysics.vx = 0;
-    shipPhysics.accumulatedInputX = 0;
-    shipPhysics.swipeVelocityInput = 0;
-
-    resetBridges();
-    trash.populateInitialTrash();
-  }
-
-  ui.initUIEvents(
-    () => resetGame(false),
-    () => {
-      state.dayCount++;
-      ui.generateDailyMission();
-      ui.dom.resultModal.classList.add('hidden');
-      ui.dom.titleModal.classList.remove('hidden');
-    }
+  // 目標ロール角の算出（横移動速度 ＋ 高速スワイプブースト）
+  const targetRollZ = Math.max(
+    -1.05,
+    Math.min(1.05, -phys.vx * 0.085 - phys.delayedTiltBoost * 0.68)
   );
+  phys.currentRollZ += (targetRollZ - phys.currentRollZ) * (1 - Math.exp(-10.0 * dt));
 
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
+  // 船体の位置・姿勢反映（水面のうねりに追従）
+  const waveY = typeof getWaterHeightAt === 'function'
+    ? getWaterHeightAt(phys.x, SHIP_Z, state.worldDistance)
+    : Math.sin(state.worldDistance * 0.35) * 0.06;
 
-  // メインアニメーションループ
-  const clock = new THREE.Clock();
-  let prevShipRollZ = 0;
+  shipGroup.position.set(phys.x, waveY, SHIP_Z);
+  shipGroup.rotation.z = phys.currentRollZ;
+  shipGroup.rotation.y = -phys.vx * 0.032;
+  shipGroup.rotation.x = Math.cos(state.worldDistance * 0.45) * 0.025;
 
-  function animate() {
-    requestAnimationFrame(animate);
-
-    const dt = Math.min(clock.getDelta(), 0.05);
-    const elapsed = clock.getElapsedTime();
-
-    // 1. タイマー更新
-    if (state.isPlaying) {
-      state.timeLeft -= dt;
-      ui.dom.timerEl.classList.toggle('text-rose-500', state.timeLeft <= 10);
-      if (state.timeLeft <= 0) {
-        state.timeLeft = 0;
-        triggerGameOver('TIMEUP');
-      }
-      const displaySec = Math.ceil(state.timeLeft);
-      ui.dom.timerEl.textContent = String(displaySec);
-      if (!ui.dom.debugPanel.classList.contains('hidden') && document.activeElement !== ui.dom.debugTimeSlider) {
-        ui.dom.debugTimeSlider.value = String(Math.max(1, displaySec));
-        ui.dom.debugTimeVal.textContent = `${displaySec}s`;
-      }
-    }
-
-    // 2. ワールド（水面・護岸・街並み・橋）更新
-    updateWorld(dt, elapsed);
-
-    // 3. 船の左右物理移動・衝突判定
-    const inputX = state.isPlaying ? shipPhysics.accumulatedInputX : 0;
-    shipPhysics.accumulatedInputX = 0;
-
-    shipPhysics.vx += inputX * shipPhysics.moveForce * dt;
-    shipPhysics.vx *= Math.pow(0.06, dt);
-    shipPhysics.vx = THREE.MathUtils.clamp(shipPhysics.vx, -shipPhysics.maxSpeed, shipPhysics.maxSpeed);
-    shipParent.position.x += shipPhysics.vx * dt;
-
-    const leftLimitX = Math.max(
-      getBankLimitAtZ(-1, shipParent.position.z - 2.0),
-      getBankLimitAtZ(-1, shipParent.position.z + 0.5),
-      getBankLimitAtZ(-1, shipParent.position.z + 2.8)
-    );
-    const rightLimitX = Math.min(
-      getBankLimitAtZ(1, shipParent.position.z - 2.0),
-      getBankLimitAtZ(1, shipParent.position.z + 0.5),
-      getBankLimitAtZ(1, shipParent.position.z + 2.8)
-    );
-
-    if (state.bankDamageCooldown > 0) state.bankDamageCooldown -= dt;
-    if (state.pierDamageCooldown > 0) state.pierDamageCooldown -= dt;
-
-    let isTouchingBank = false;
-    let bankContactSide = 0;
-    if (shipParent.position.x <= leftLimitX) {
-      isTouchingBank = true;
-      bankContactSide = -1;
-      const impactSpeed = Math.abs(Math.min(0, shipPhysics.vx));
-      shipParent.position.x = leftLimitX;
-      shipPhysics.vx = Math.max(1.8, impactSpeed * 0.45);
-    } else if (shipParent.position.x >= rightLimitX) {
-      isTouchingBank = true;
-      bankContactSide = 1;
-      const impactSpeed = Math.abs(Math.max(0, shipPhysics.vx));
-      shipParent.position.x = rightLimitX;
-      shipPhysics.vx = -Math.max(1.8, impactSpeed * 0.45);
-    }
-
-    if (state.isPlaying && isTouchingBank && state.bankDamageCooldown <= 0) {
-      if (ui.dom.hullDamageAlertEl) ui.dom.hullDamageAlertEl.textContent = '⚠️ BANK COLLISION!';
-      applyShipDamage(12, bankContactSide);
-      state.bankDamageCooldown = 0.42;
-    }
-
-    // 橋脚との接触判定
-    let isTouchingPier = false;
-    const shipHalfWidth = 1.48;
-    const shipBowZ = shipParent.position.z + 3.25;
-    const shipSternZ = shipParent.position.z - 2.55;
-
-    bridges.forEach((b) => {
-      const bz = b.group.position.z;
-      b.piers.forEach((pier) => {
-        if (bz >= shipSternZ - pier.radius && bz <= shipBowZ + pier.radius) {
-          const dx = shipParent.position.x - pier.x;
-          const minSafeDist = shipHalfWidth + pier.radius;
-          if (Math.abs(dx) < minSafeDist) {
-            isTouchingPier = true;
-            const pushDir = dx >= 0 ? 1 : -1;
-            shipParent.position.x = pier.x + pushDir * minSafeDist;
-            shipPhysics.vx = pushDir * Math.max(3.2, Math.abs(shipPhysics.vx) * 0.55);
-
-            if (state.isPlaying && state.pierDamageCooldown <= 0) {
-              if (ui.dom.hullDamageAlertEl) ui.dom.hullDamageAlertEl.textContent = '⚠️ BRIDGE PIER HIT!';
-              applyShipDamage(18, -pushDir);
-              state.pierDamageCooldown = 0.55;
-            }
-          }
-        }
-      });
-    });
-
-    if (state.damageFlashTimer > 0) {
-      state.damageFlashTimer -= dt;
-      const flashIntensity = Math.max(0, state.damageFlashTimer / 0.22);
-      hullMat.emissive.setRGB(0.65 * flashIntensity, 0.05 * flashIntensity, 0.05 * flashIntensity);
-      orangeMat.emissive.setRGB(0.55 * flashIntensity, 0.04 * flashIntensity, 0.04 * flashIntensity);
-      if (state.damageFlashTimer <= 0 && !isTouchingBank && !isTouchingPier) {
-        hullMat.emissive.setHex(0x000000);
-        orangeMat.emissive.setHex(0x000000);
-        ui.updateHullHpUI(false);
-      }
-    }
-
-    // カメラ追従
-    const targetCamX = shipParent.position.x * 0.72;
-    camera.position.x = THREE.MathUtils.lerp(camera.position.x, targetCamX, dt * 6.5);
-    camera.lookAt(camera.position.x * 0.85, 0.5, 10);
-
-    // ロール傾斜・転覆判定
-    shipPhysics.swipeVelocityInput = THREE.MathUtils.lerp(shipPhysics.swipeVelocityInput, 0, dt * 5.0);
-    const targetRollZ = THREE.MathUtils.clamp(
-      shipPhysics.vx * 0.022 + shipPhysics.swipeVelocityInput * 0.24,
-      -0.42,
-      0.42
-    );
-    if (!state.shipCapsizing) {
-      shipVisual.rotation.z = THREE.MathUtils.lerp(shipVisual.rotation.z, targetRollZ, dt * 8.5);
-      shipVisual.rotation.x = Math.sin(elapsed * 3.2) * 0.025;
-      shipVisual.position.y = Math.sin(elapsed * 2.6) * 0.06;
-    }
-
-    const currentRollZ = shipVisual.rotation.z;
-    const tiltDelta = currentRollZ - prevShipRollZ;
-    prevShipRollZ = currentRollZ;
-
-    const FALL_THRESHOLD_RAD = THREE.MathUtils.degToRad(CONSTANTS.FALL_THRESHOLD_DEG);
-    const WARN_THRESHOLD_RAD = THREE.MathUtils.degToRad(CONSTANTS.WARN_THRESHOLD_DEG);
-    const SPRAY_THRESHOLD_RAD = THREE.MathUtils.degToRad(CONSTANTS.SPRAY_THRESHOLD_DEG);
-
-    if (state.shipCapsizing) {
-      updateCapsizeAnimation(dt);
-      if (state.capsizeProgress >= 1.35 && !state.isGameOver) {
-        triggerGameOver('CAPSIZE');
-      }
-    } else if (!state.crewFalling) {
-      const absRoll = Math.abs(currentRollZ);
-
-      if (state.isPlaying && absRoll >= SPRAY_THRESHOLD_RAD) {
-        const splashSide = currentRollZ >= 0 ? 1 : -1;
-        const intensity = THREE.MathUtils.clamp(
-          (absRoll - SPRAY_THRESHOLD_RAD) / (FALL_THRESHOLD_RAD - SPRAY_THRESHOLD_RAD),
-          0.2,
-          1.0
-        );
-        spawnTiltSpray(splashSide, intensity);
-      }
-
-      if (state.isPlaying && absRoll >= FALL_THRESHOLD_RAD) {
-        state.shipCapsizing = true;
-        state.capsizeDir = currentRollZ >= 0 ? 1 : -1;
-        state.capsizeProgress = 0;
-        state.isPlaying = false;
-        activeNetCrew = null;
-        isShipDragging = false;
-        netAimLine.visible = false;
-        netTargetMarker.visible = false;
-      } else if (state.crewEnabled) {
-        const isDangerTilt = state.isPlaying && absRoll >= WARN_THRESHOLD_RAD;
-        updateCrewStability(dt, elapsed, currentRollZ, tiltDelta, activeNetCrew, isDangerTilt);
-      }
-    } else {
-      state.crewFallVelocity.y -= 14.0 * dt;
-      const fallingCrew = state.fallingCrew;
-      if (fallingCrew) {
-        fallingCrew.group.position.addScaledVector(state.crewFallVelocity, dt);
-        fallingCrew.group.rotation.z += (state.crewFallVelocity.x > 0 ? -5.5 : 5.5) * dt;
-        fallingCrew.group.rotation.x += 2.5 * dt;
-
-        if (fallingCrew.group.position.y < -1.8 && !state.isGameOver) {
-          triggerGameOver('OVERBOARD');
-        }
-      }
-    }
-
-    // 4. 漂流ゴミ更新
-    trash.updateTrash(dt, elapsed, (typeId) => {
-      state.score++;
-      if (typeId && state.collectedByType[typeId] !== undefined) {
-        state.collectedByType[typeId]++;
-      }
-      ui.updateHudRecoveryCounts();
-      boxGroup.scale.set(1.14, 1.14, 1.14);
-    });
-
-    // 5. パーティクル更新 & レンダリング
-    updateTiltParticles(dt);
-    renderer.render(scene, camera);
+  // 左右移動・傾きに応じた側面水しぶきパーティクル発生
+  if (typeof updateSideWaterSpray === 'function') {
+    updateSideWaterSpray(dt, phys.x, waveY, SHIP_Z, phys.vx, phys.currentRollZ);
   }
 
-  window.addEventListener('load', () => {
-    animate();
-  });
-})(window.GameApp);
+  // タモ網の伸縮アニメーション更新
+  if (typeof updateCrewNets === 'function') {
+    updateCrewNets(dt);
+  }
+
+  // 50度超の傾きで転覆判定
+  if (state.phase === 'playing' && Math.abs(phys.currentRollZ) > FALL_THRESHOLD_RAD) {
+    endGame('capsize');
+  }
+}
+
+// メインアニメーションループ
+let lastFrameTime = performance.now();
+
+function animate(now) {
+  requestAnimationFrame(animate);
+
+  const dt = Math.min(0.05, Math.max(0.001, (now - lastFrameTime) / 1000));
+  lastFrameTime = now;
+
+  if (state.damageCooldown > 0) {
+    state.damageCooldown = Math.max(0, state.damageCooldown - dt);
+  }
+
+  const scrollSpeed = state.phase === 'playing' ? state.baseScrollSpeed : state.baseScrollSpeed * 0.45;
+  state.worldDistance += scrollSpeed * dt;
+
+  // 環境・水面・街並み・橋の更新
+  if (typeof updateWorld === 'function') {
+    updateWorld(dt, scrollSpeed, state.worldDistance);
+  }
+
+  if (state.phase === 'playing') {
+    // タイマー更新
+    state.timeLeft = Math.max(0, state.timeLeft - dt);
+    const ceilSec = Math.ceil(state.timeLeft);
+    dom.timer.textContent = ceilSec;
+    if (dom.debugTimeSlider) dom.debugTimeSlider.value = ceilSec.toString();
+    if (dom.debugTimeVal) dom.debugTimeVal.textContent = `${ceilSec}秒`;
+
+    if (state.timeLeft <= 10) {
+      dom.timer.classList.add('text-rose-400');
+    } else {
+      dom.timer.classList.remove('text-rose-400');
+    }
+
+    // 船体移動・衝突・水しぶき更新
+    updateShipAndCollisions(dt);
+
+    // ゴミのスポーン・移動・回収処理
+    if (typeof updateTrashSystem === 'function') {
+      updateTrashSystem(dt, scrollSpeed);
+    }
+
+    if (state.timeLeft <= 0) {
+      endGame('timeup');
+    }
+  } else {
+    // タイトル・リザルト画面でのアイドル揺れアニメーション
+    const idleWave = Math.sin(now * 0.0025) * 0.06;
+    shipGroup.position.y = idleWave;
+    shipGroup.rotation.z = Math.sin(now * 0.0018) * 0.04;
+    if (typeof updateSideWaterSpray === 'function') {
+      updateSideWaterSpray(dt, shipGroup.position.x, idleWave, SHIP_Z, 0, shipGroup.rotation.z);
+    }
+  }
+
+  renderer.render(scene, camera);
+}
+
+// ウィンドウリサイズ対応
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// 初期化シーケンス
+function initApp() {
+  initDebugUI();
+  initInputEvents();
+  setSelectedCrewCount(state.selectedCrewCount || 0);
+  generateDailyMission();
+  updateHullHpUI();
+
+  if (dom.startBtn) {
+    dom.startBtn.addEventListener('click', () => {
+      startGame();
+    });
+  }
+
+  if (dom.retryBtn) {
+    dom.retryBtn.addEventListener('click', () => {
+      generateDailyMission();
+      dom.resultModal.classList.add('hidden');
+      dom.titleModal.classList.remove('hidden');
+      state.phase = 'title';
+    });
+  }
+
+  requestAnimationFrame(animate);
+}
+
+initApp();
